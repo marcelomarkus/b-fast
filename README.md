@@ -1,4 +1,4 @@
-⚡ B-FAST (Binary Fast Adaptive Serialization Transfer)
+## ⚡ B-FAST (Binary Fast Adaptive Serialization Transfer)
 
 O B-FAST é um protocolo de serialização binária de ultra-alta performance, desenvolvido em Rust para o ecossistema Python e TypeScript. Ele foi projetado para substituir o JSON em rotas críticas onde latência, uso de CPU e largura de banda são gargalos.
 
@@ -11,7 +11,7 @@ O B-FAST é um protocolo de serialização binária de ultra-alta performance, d
 - **Bit-Packing:** Inteiros pequenos e booleanos ocupam apenas 4 bits dentro da tag de tipo.
 - **LZ4 Integrado:** Compressão de blocos ultra-veloz para payloads grandes.
 
-📊 Benchmark (Latência Média)
+## 📊 Benchmark (Latência Média)
 Comparação de serialização de uma lista de 10.000 modelos Pydantic complexos:
 
 | Formato | Tempo (ms) | Tamanho do Payload |
