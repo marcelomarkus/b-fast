@@ -1,0 +1,20 @@
+site_name: B-FAST Documentation
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: teal
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [python]
+
+nav:
+  - Home: index.md
+  - Getting Started: getting_started.md
+  - Frontend: frontend.md
+  - Performance: performance.md
+  - Troubleshooting: troubleshooting.md

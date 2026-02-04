@@ -1,0 +1,39 @@
+{
+  "name": "@b-fast/client",
+  "version": "1.0.0",
+  "description": "Ultra-fast binary decoder for B-FAST format",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "node dist/test.js"
+  },
+  "keywords": [
+    "binary",
+    "serialization",
+    "fast",
+    "decoder",
+    "b-fast"
+  ],
+  "author": "B-FAST Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/b-fast.git",
+    "directory": "client-ts"
+  },
+  "dependencies": {
+    "lz4js": "^0.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

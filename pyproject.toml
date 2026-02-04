@@ -1,0 +1,49 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "b-fast"
+version = "0.1.0"
+requires-python = ">=3.8"
+dependencies = [
+    "pydantic>=2.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+fastapi = ["fastapi"]
+dev = [
+    "matplotlib>=3.7.5",
+    "orjson>=3.10.15",
+    "mkdocs-material>=9.7.1",
+    "mkdocstrings[python]>=0.26.1",
+    "pytest>=7.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long (handled by black)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["b_fast"]

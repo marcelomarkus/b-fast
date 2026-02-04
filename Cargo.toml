@@ -1,0 +1,20 @@
+[package]
+name = "b_fast"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "b_fast"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py38"] }
+ahash = "0.8"
+lz4_flex = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+numpy = "0.20"
+chacha20poly1305 = "0.10"
+thiserror = "1.0"
+
+[build-dependencies]
+maturin = "1.4"

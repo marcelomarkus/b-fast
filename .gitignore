@@ -1,0 +1,37 @@
+# Rust
+/target/
+Cargo.lock
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+
+# TypeScript / Node
+node_modules/
+/client-ts/dist/
+/client-ts/node_modules/
+npm-debug.log
+*.tsbuildinfo
+
+# Documentation
+/site/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# B-FAST Generated
+benchmark_results.png
+*.bin
+
+# Internal/Strategic docs
+docs/specification.md
