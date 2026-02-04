@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.7] - 2026-02-04
+
+### 📚 Documentation
+- **MAJOR**: Added multilingual documentation (English + Portuguese)
+- Created comprehensive Portuguese documentation with all sections
+- Added language selector similar to FastAPI docs
+- Improved English documentation with updated benchmarks
+- Added build script for multilingual documentation deployment
+
+### 🌐 Internationalization
+- Complete Portuguese translation of all documentation pages
+- Organized documentation structure: `/` (English) and `/pt/` (Portuguese)
+- Language switcher in navigation header
+- Localized navigation menus and content
+
+### 📁 Documentation Structure
+- `docs/` - English documentation (default)
+- `docs/pt/` - Portuguese documentation
+- `build_docs.sh` - Automated build script for both languages
+- Updated MkDocs configuration for better navigation
+
+### 🔧 Technical Improvements
+- Enhanced MkDocs theme with better navigation features
+- Added proper language metadata for SEO
+- Improved documentation build process
+- Better organization of multilingual content
+
 ## [1.0.6] - 2026-02-04
 
 ### 🚀 Performance Improvements
