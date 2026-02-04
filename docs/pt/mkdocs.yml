@@ -1,5 +1,6 @@
-site_name: B-FAST Documentation
-site_url: https://marcelomarkus.github.io/b-fast/
+site_name: B-FAST Documentação
+site_url: https://marcelomarkus.github.io/b-fast/pt/
+docs_dir: docs
 
 theme:
   name: material
@@ -13,21 +14,21 @@ theme:
     - navigation.top
     - search.highlight
     - search.share
-  language: en
+  language: pt
 
 plugins:
   - search
   - mkdocstrings:
       handlers:
         python:
-          paths: [python]
+          paths: [../../python]
 
 nav:
-  - Home: index.md
-  - Getting Started: getting_started.md
+  - Início: index.md
+  - Começando: getting_started.md
   - Frontend: frontend.md
   - Performance: performance.md
-  - Troubleshooting: troubleshooting.md
+  - Solução de Problemas: troubleshooting.md
 
 extra:
   alternate:
