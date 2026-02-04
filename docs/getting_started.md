@@ -2,9 +2,9 @@
 
 ## Instalação
 ```bash
-pip install b-fast
+pip install bfast-py
 # ou
-uv add b-fast
+uv add bfast-py
 ```
 
 ## Uso Básico

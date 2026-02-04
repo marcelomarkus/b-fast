@@ -24,11 +24,11 @@ Comparação de serialização de uma lista de 10.000 modelos Pydantic complexos
 
 ### Backend (Python)
 ```bash
-uv add b-fast
+uv add bfast-py
 ```
 ou
 ```bash
-pip install b-fast
+pip install bfast-py
 ```
 
 ### Frontend (TypeScript)
