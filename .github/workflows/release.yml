@@ -26,14 +26,15 @@ jobs:
           python-version: '3.10'
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Build with Maturin
-        uses: PyO3/maturin-action@v1
-        with:
-          command: build
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build wheels
+        run: maturin build --release --out dist --find-interpreter
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -53,13 +54,19 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Publish to PyPI
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          command: upload
-          args: --non-interactive --skip-existing dist/*
+          python-version: '3.10'
+
+      - name: Install twine
+        run: pip install twine
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
 
   # JOB 3: Compila e Publica no NPM (TypeScript)
   publish_typescript:
