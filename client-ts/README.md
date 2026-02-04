@@ -1,11 +1,11 @@
-# @b-fast/client
+# bfast-client
 
 Client ultra-fast binary decoder for ⚡B-FAST format in TypeScript/JavaScript.
 
 ## Installation
 
 ```bash
-npm install @b-fast/client
+npm install bfast-client
 ```
 
 ## Usage
@@ -13,7 +13,7 @@ npm install @b-fast/client
 ### Basic Decoding
 
 ```typescript
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 // Fetch B-FAST data from API
 const response = await fetch('/api/data');
@@ -27,7 +27,7 @@ console.log(data);
 ### Error Handling
 
 ```typescript
-import { BFastDecoder, BFastError } from '@b-fast/client';
+import { BFastDecoder, BFastError } from 'bfast-client';
 
 try {
     const data = BFastDecoder.decode(buffer);
@@ -45,7 +45,7 @@ try {
 
 ```typescript
 import { useState, useEffect } from 'react';
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 function useBFastData<T>(url: string) {
     const [data, setData] = useState<T | null>(null);
@@ -76,7 +76,7 @@ function useBFastData<T>(url: string) {
 
 ```typescript
 import axios from 'axios';
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 // Configure axios to handle B-FAST responses
 axios.interceptors.response.use(response => {

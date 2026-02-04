@@ -33,7 +33,7 @@ pip install bfast-py
 
 ### Frontend (TypeScript)
 ```bash
-npm install @b-fast/client
+npm install bfast-client
 ```
 
 ## 🛠️ Como usar
@@ -69,7 +69,7 @@ async def get_users():
 
 ### 2. No Frontend (React / Vue / Angular)
 ```typescript
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 async function loadData() {
     const response = await fetch('/users');

@@ -2,14 +2,14 @@
 
 ## Instalação
 ```bash
-npm install @b-fast/client
+npm install bfast-client
 ```
 
 ## Uso Básico
 
 ### Decodificação Simples
 ```typescript
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 async function fetchData() {
     const response = await fetch('/api/users');
@@ -24,7 +24,7 @@ async function fetchData() {
 ### React Hook Personalizado
 ```typescript
 import { useState, useEffect } from 'react';
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 function useBFastData<T>(url: string) {
     const [data, setData] = useState<T | null>(null);
@@ -73,7 +73,7 @@ function UserList() {
 ### Axios Interceptor
 ```typescript
 import axios from 'axios';
-import { BFastDecoder } from '@b-fast/client';
+import { BFastDecoder } from 'bfast-client';
 
 // Configurar interceptor para respostas B-FAST
 axios.interceptors.response.use(response => {
@@ -90,7 +90,7 @@ console.log(users.data); // Já decodificado automaticamente
 
 ### Tratamento de Erros
 ```typescript
-import { BFastDecoder, BFastError } from '@b-fast/client';
+import { BFastDecoder, BFastError } from 'bfast-client';
 
 async function safeDecodeData(buffer: ArrayBuffer) {
     try {
