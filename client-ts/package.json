@@ -1,6 +1,6 @@
 {
   "name": "bfast-client",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Client for ⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Protocolo de serialização binária de ultra-alta performance",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
