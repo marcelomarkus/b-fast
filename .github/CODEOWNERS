@@ -1,0 +1,15 @@
+# Global code owners - require review from marcelomarkus for all changes
+* @marcelomarkus
+
+# Critical files require explicit approval
+/.github/ @marcelomarkus
+/pyproject.toml @marcelomarkus
+/Cargo.toml @marcelomarkus
+/client-ts/package.json @marcelomarkus
+/src/ @marcelomarkus
+/python/ @marcelomarkus
+
+# Security and configuration files
+/SECURITY.md @marcelomarkus
+/.github/workflows/ @marcelomarkus
+/.gitignore @marcelomarkus
