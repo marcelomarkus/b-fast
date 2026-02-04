@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bfast-py"
-version = "1.0.4"
+version = "1.0.5"
 description = "⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Protocolo de serialização binária de ultra-alta performance, desenvolvido em Rust para o ecossistema Python e TypeScript"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -32,6 +32,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/marcelomarkus/b-fast"
+Documentation = "https://marcelomarkus.github.io/b-fast/"
 Repository = "https://github.com/marcelomarkus/b-fast"
 Issues = "https://github.com/marcelomarkus/b-fast/issues"
 
