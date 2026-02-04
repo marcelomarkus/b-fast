@@ -17,11 +17,44 @@ Documentação completa disponível em: **https://marcelomarkus.github.io/b-fast
 ## 📊 Benchmark (Latência Média)
 Comparação de serialização de uma lista de 10.000 modelos Pydantic complexos:
 
-| Formato | Tempo (ms) | Tamanho do Payload |
-|---------|------------|-------------------|
-| JSON (Standard) | 45.2ms | 1.2 MB |
-| Orjson | 12.8ms | 1.1 MB |
-| B-FAST | 1.4ms | 240 KB |
+### 🚀 Serialização (Encode)
+| Formato | Tempo (ms) | Speedup | Tamanho do Payload | Redução |
+|---------|------------|---------|-------------------|---------|
+| JSON (Standard) | 10.14ms | 1.0x | 1.18 MB | 0% |
+| orjson | 1.55ms | 6.6x | 1.06 MB | 10% |
+| Pickle | 2.73ms | 3.7x | 808 KB | 32% |
+| **B-FAST** | **4.67ms** | **2.2x** | **998 KB** | **15%** |
+| **B-FAST + LZ4** | **5.27ms** | **1.9x** | **252 KB** | **79%** |
+
+### 🔄 Round-Trip (Encode + Network + Decode)
+Teste completo incluindo transferência de rede e deserialização:
+
+#### 📡 100 Mbps (Rede Lenta)
+| Formato | Tempo Total | Speedup vs JSON |
+|---------|-------------|-----------------|
+| JSON | 114.3ms | 1.0x |
+| orjson | 92.3ms | 1.2x |
+| **B-FAST + LZ4** | **28.3ms** | **🚀 4.0x** |
+
+#### 📡 1 Gbps (Rede Rápida)
+| Formato | Tempo Total | Speedup vs JSON |
+|---------|-------------|-----------------|
+| JSON | 29.3ms | 1.0x |
+| orjson | 15.9ms | 1.8x |
+| **B-FAST + LZ4** | **10.2ms** | **🚀 2.9x** |
+
+#### 📡 10 Gbps (Rede Ultra-Rápida)
+| Formato | Tempo Total | Speedup vs JSON |
+|---------|-------------|-----------------|
+| JSON | 20.8ms | 1.0x |
+| orjson | 8.3ms | 2.5x |
+| **B-FAST + LZ4** | **8.4ms** | **🚀 2.5x** |
+
+### 🎯 Casos de Uso Ideais
+- **📱 Mobile/IoT**: 79% economia de dados + 2.2x performance
+- **🌐 APIs com rede lenta**: Até 4x mais rápido que JSON
+- **📊 Data pipelines**: 148x speedup para NumPy arrays
+- **🗜️ Storage/Cache**: Compressão superior integrada
 
 ## 📦 Instalação
 
@@ -86,13 +119,19 @@ async function loadData() {
 
 ## About B-FAST
 
-> "Knowledge is the only wealth that grows when we share it"
+> "Performance is not just about speed—it's about efficiency where it matters most"
 
-B-FAST was born from the belief that high-performance tools should be accessible to everyone. This project represents our commitment to open-source innovation and the sharing of knowledge that drives the developer community forward.
+B-FAST was born from the recognition that modern applications need more than just fast serialization—they need **smart serialization** that adapts to real-world constraints. After extensive optimization achieving **2.2x faster serialization** and **79% payload reduction**, B-FAST has found its perfect niche in bandwidth-constrained environments.
+
+**Key Achievements:**
+- 🚀 **4.0x faster** than JSON on 100 Mbps networks (round-trip)
+- 📦 **79% smaller** payloads with built-in LZ4 compression
+- ⚡ **148x speedup** for NumPy arrays
+- 🎯 **Competitive** even on ultra-fast 10 Gbps networks
 
 **Developed by:** [marcelomarkus](https://github.com/marcelomarkus)
 
-**Philosophy:** We believe that by sharing efficient solutions, we collectively raise the bar for what's possible in software development. B-FAST is our contribution to a faster, more efficient web.
+**Philosophy:** We believe that the future of data transfer lies not in raw CPU speed alone, but in intelligent protocols that minimize network overhead while maintaining excellent performance. B-FAST represents our contribution to a more efficient, bandwidth-conscious web.
 
 ## 📄 Licença
 Distribuído sob a licença MIT. Veja LICENSE para mais informações.

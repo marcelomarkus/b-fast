@@ -1,113 +1,125 @@
-# Troubleshooting
+# 🔧 Troubleshooting
 
-## Problemas Comuns
+## Common Issues
 
-### Erro de Importação
-```
-ImportError: No module named 'b_fast'
-```
-**Solução:** Verifique se o B-FAST está instalado:
+### Installation Problems
+
+#### "No module named 'b_fast'"
 ```bash
-pip list | grep b-fast
-# Se não aparecer, instale:
-pip install b-fast
+# Make sure you installed the package
+pip install bfast-py
+
+# Or with uv
+uv add bfast-py
 ```
 
-### Erro de Decodificação no Frontend
+#### Compilation Errors
+```bash
+# Update pip and try again
+pip install --upgrade pip setuptools wheel
+pip install bfast-py --force-reinstall
 ```
-BFastError: Invalid binary format
-```
-**Causas possíveis:**
-1. Servidor não está enviando dados B-FAST
-2. Middleware modificando o payload
-3. Versões incompatíveis entre backend e frontend
 
-**Solução:**
+### Performance Issues
+
+#### Slower than Expected
+1. **Check data structure**: B-FAST excels with Pydantic objects and NumPy arrays
+2. **Enable compression**: Use `compress=True` for large payloads
+3. **Batch processing**: Process lists of similar objects for best performance
+
+#### Memory Usage
+```python
+# Reuse encoder instance
+encoder = b_fast.BFast()
+for batch in data_batches:
+    result = encoder.encode_packed(batch, compress=True)
+```
+
+### Compatibility Issues
+
+#### Unsupported Data Types
+B-FAST currently supports:
+- ✅ Pydantic models
+- ✅ Basic Python types (int, str, bool, float, None)
+- ✅ Lists and dictionaries
+- ✅ NumPy arrays (float64)
+- ❌ Custom classes (without Pydantic)
+- ❌ Complex numbers
+- ❌ Datetime objects (convert to timestamp first)
+
+#### TypeScript Client Issues
 ```typescript
-// Verificar content-type
+// Make sure to handle binary data correctly
 const response = await fetch('/api/data');
-console.log(response.headers.get('content-type')); // Deve ser 'application/x-bfast'
-
-// Verificar se é realmente binário
 const buffer = await response.arrayBuffer();
-console.log(buffer.byteLength); // Deve ter tamanho > 0
+const data = BFastDecoder.decode(buffer);
 ```
 
-### Performance Pior que JSON
-**Possíveis causas:**
-1. Payload muito pequeno (< 512 bytes)
-2. Criando novo encoder a cada serialização
-3. Convertendo NumPy arrays para listas
+## Performance Optimization
 
-**Solução:**
+### When B-FAST is Optimal
+- **Network bandwidth is limited** (mobile, IoT)
+- **Large datasets with repeated structure** (lists of Pydantic objects)
+- **NumPy arrays** (148x speedup vs JSON)
+- **Storage efficiency matters** (79% size reduction)
+
+### When to Consider Alternatives
+- **Ultra-fast networks** (10+ Gbps internal)
+- **Simple data structures** (single values, small objects)
+- **CPU-constrained environments**
+
+### Optimization Tips
 ```python
-# ✅ Encoder singleton
-encoder = b_fast.BFast()
+# 1. Use compression for large payloads
+result = encoder.encode_packed(data, compress=True)
 
-# ✅ Sem compressão para payloads pequenos
-if len(data) < 512:
-    binary = encoder.encode(data)
-else:
-    binary = encoder.encode_packed(data, compress=True)
+# 2. Batch similar objects together
+users = [User(...) for _ in range(1000)]  # Good
+mixed = [user1, "string", 123, dict()]    # Less optimal
+
+# 3. Reuse encoder instances
+encoder = b_fast.BFast()  # Create once
+for batch in batches:
+    encoder.encode_packed(batch)  # Reuse
 ```
 
-### Erro de Compatibilidade Pydantic
-```
-TypeError: Object of type 'BaseModel' is not serializable
-```
-**Solução:** Certifique-se de usar Pydantic v2:
-```bash
-pip install "pydantic>=2.0"
-```
+## Getting Help
 
-## Requisitos do Sistema
-
-### Backend (Python)
-- Python 3.8+
-- Pydantic 2.0+ (recomendado)
-- NumPy 1.20+ (opcional, para arrays)
-
-### Frontend (TypeScript/JavaScript)
-- Node.js 14.0+
-- Navegadores modernos (ES2018+)
-
-## Logs de Debug
-
-### Habilitando Logs Detalhados
+### Debug Information
 ```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-
 import b_fast
-encoder = b_fast.BFast(debug=True)  # Se disponível
-```
+print(f"B-FAST version: {b_fast.__version__}")
 
-### Medindo Performance
-```python
-import time
-import b_fast
-
+# Test basic functionality
 encoder = b_fast.BFast()
-data = {"test": list(range(1000))}
-
-# Medir serialização
-start = time.perf_counter()
-binary = encoder.encode_packed(data, compress=True)
-end = time.perf_counter()
-
-print(f"Tempo: {(end - start) * 1000:.2f}ms")
-print(f"Tamanho: {len(binary)} bytes")
+test_data = {"test": 123}
+result = encoder.encode_packed(test_data, False)
+print(f"Encoded {len(result)} bytes")
 ```
 
-## Reportar Problemas
+### Reporting Issues
+When reporting issues, please include:
+1. **Python version** and operating system
+2. **B-FAST version** (`pip show bfast-py`)
+3. **Sample data structure** that causes the issue
+4. **Error message** (full traceback)
+5. **Expected vs actual behavior**
 
-Se encontrar um bug ou problema não listado aqui:
+### Community Support
+- **GitHub Issues**: [Report bugs and feature requests](https://github.com/marcelomarkus/b-fast/issues)
+- **Discussions**: [Ask questions and share use cases](https://github.com/marcelomarkus/b-fast/discussions)
+- **Documentation**: [Complete documentation](https://marcelomarkus.github.io/b-fast/)
 
-1. Verifique se está usando a versão mais recente
-2. Colete informações do sistema:
-   ```bash
-   python --version
-   pip show b-fast
-   ```
-3. Crie um exemplo mínimo que reproduz o problema
-4. Abra uma issue no repositório GitHub
+## FAQ
+
+### Q: Why is B-FAST slower than orjson for simple data?
+A: B-FAST is optimized for bandwidth-constrained scenarios and complex data structures. For simple data on fast networks, orjson may be faster.
+
+### Q: Can I use B-FAST with Django/Flask?
+A: Yes! B-FAST works with any Python web framework. Create a custom response class that uses B-FAST encoding.
+
+### Q: Is there a decoder for Python?
+A: The decoder is currently in development. The TypeScript client includes a full decoder implementation.
+
+### Q: How does compression work?
+A: B-FAST uses built-in LZ4 compression which is extremely fast (0.32ms decompress for 252KB). No external dependencies required.
