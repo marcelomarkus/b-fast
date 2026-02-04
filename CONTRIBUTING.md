@@ -194,8 +194,8 @@ B-FAST is built on the principle of open knowledge sharing. Every contribution, 
 ## 🆘 Getting Help
 
 - **Questions:** Open a discussion or issue
+- **Documentation:** https://marcelomarkus.github.io/b-fast/
 - **Chat:** GitHub Discussions for real-time help
-- **Documentation:** Check `docs/` directory first
 - **Examples:** See `main.py` and client examples
 
 ## 📄 License

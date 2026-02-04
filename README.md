@@ -2,6 +2,9 @@
 
 O B-FAST é um protocolo de serialização binária de ultra-alta performance, desenvolvido em Rust para o ecossistema Python e TypeScript. Ele foi projetado para substituir o JSON em rotas críticas onde latência, uso de CPU e largura de banda são gargalos.
 
+## 📚 Documentação
+Documentação completa disponível em: **https://marcelomarkus.github.io/b-fast/**
+
 
 ## 🚀 Por que B-FAST?
 - **Motor Rust:** Serialização nativa sem o overhead do interpretador Python.
