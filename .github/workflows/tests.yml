@@ -155,7 +155,7 @@ jobs:
     
     - name: Compile integration test
       working-directory: client-ts
-      run: npx tsc tests/type-preservation.test.ts --outDir dist --module commonjs --esModuleInterop --skipLibCheck
+      run: npx tsc tests/type-preservation.test.ts --outDir dist --module commonjs --lib es2020,dom --esModuleInterop --skipLibCheck --types node
     
     - name: Generate test data (Python)
       run: python tests/test_integration_types.py
