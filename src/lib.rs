@@ -25,12 +25,12 @@ const TAG_DECIMAL: u8 = 0xD5;   // Decimal as string
 // BRANCH PREDICTION HINTS (stable alternatives)
 #[inline(always)]
 fn likely(b: bool) -> bool {
-    if b { true } else { false }
+    b
 }
 
 #[inline(always)]
 fn unlikely(b: bool) -> bool {
-    if !b { true } else { false }
+    b
 }
 
 #[repr(align(64))] // CPU cache line alignment
@@ -203,6 +203,7 @@ impl BFast {
         self.work_buffer.push(0x70);
         
         let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
+        let py = obj.py();
         
         // UNROLLED LOOP for common 5-field case (User model)
         if likely(field_names.len() == 5) {
@@ -210,7 +211,7 @@ impl BFast {
             self.work_buffer.extend_from_slice(&field_ids[0].to_le_bytes());
             if let Some(value) = dict.get_item(&field_names[0])? {
                 if let Ok(n) = value.extract::<i64>() {
-                    if n >= 0 && n <= 15 {
+                    if n >= 0 && n <= 7 {
                         self.work_buffer.push(0x30 | (n as u8));
                     } else {
                         self.work_buffer.push(0x38);
@@ -291,7 +292,8 @@ impl BFast {
             // Generic case
             for (field_name, &field_id) in field_names.iter().zip(field_ids.iter()) {
                 self.work_buffer.extend_from_slice(&field_id.to_le_bytes());
-                if let Some(value) = dict.get_item(field_name)? {
+                let py_key = PyString::new(py, field_name);
+                if let Some(value) = dict.get_item(py_key)? {
                     self.serialize_value_ultra_fast(value)?;
                 } else {
                     self.work_buffer.push(0x10);
@@ -310,20 +312,73 @@ impl BFast {
             return Ok(());
         }
         
+        // Check bool BEFORE int (bool is subclass of int in Python)
+        if likely(val.extract::<bool>().is_ok()) {
+            let b = val.extract::<bool>()?;
+            self.work_buffer.push(if b { 0x21 } else { 0x20 });
+            return Ok(());
+        }
+        
+        // Check special types FIRST (before basic types)
+        // Decimal (must check before f64 extraction)
+        if let Ok(type_name) = val.get_type().name() {
+            match type_name {
+                "Decimal" => {
+                    let dec_str = val.str()?.extract::<String>()?;
+                    self.work_buffer.push(TAG_DECIMAL);
+                    let bytes = dec_str.as_bytes();
+                    self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    self.work_buffer.extend_from_slice(bytes);
+                    return Ok(());
+                }
+                "UUID" => {
+                    let hex_str = val.getattr("hex")?.extract::<String>()?;
+                    self.work_buffer.push(TAG_UUID);
+                    let bytes = hex_str.as_bytes();
+                    self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    self.work_buffer.extend_from_slice(bytes);
+                    return Ok(());
+                }
+                "datetime" | "date" | "time" => {
+                    let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
+                    let tag = match type_name {
+                        "datetime" => TAG_DATETIME,
+                        "date" => TAG_DATE,
+                        "time" => TAG_TIME,
+                        _ => 0x50,
+                    };
+                    self.work_buffer.push(tag);
+                    let bytes = iso_str.as_bytes();
+                    self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    self.work_buffer.extend_from_slice(bytes);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        
+        // Enum (extract .value)
+        if val.hasattr("__class__")? {
+            if let Ok(class) = val.getattr("__class__") {
+                if let Ok(bases) = class.getattr("__bases__") {
+                    if let Ok(bases_str) = bases.str() {
+                        if bases_str.to_str()?.contains("Enum") {
+                            let enum_value = val.getattr("value")?;
+                            return self.serialize_value_ultra_fast(enum_value);
+                        }
+                    }
+                }
+            }
+        }
+        
         if likely(val.extract::<i64>().is_ok()) {
             let n = val.extract::<i64>()?;
-            if n >= 0 && n <= 15 {
+            if n >= 0 && n <= 7 {
                 self.work_buffer.push(0x30 | (n as u8));
             } else {
                 self.work_buffer.push(0x38);
                 self.work_buffer.extend_from_slice(&n.to_le_bytes());
             }
-            return Ok(());
-        }
-        
-        if likely(val.extract::<bool>().is_ok()) {
-            let b = val.extract::<bool>()?;
-            self.work_buffer.push(if b { 0x21 } else { 0x20 });
             return Ok(());
         }
         
@@ -463,7 +518,7 @@ impl BFast {
         }
 
         if let Ok(n) = val.extract::<i64>() {
-            if n >= 0 && n <= 15 {
+            if n >= 0 && n <= 7 {
                 self.work_buffer.push(0x30 | (n as u8));
             } else {
                 self.work_buffer.push(0x38);
