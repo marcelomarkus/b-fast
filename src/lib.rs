@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyAny, PyBytes, PyList, PyString};
+use pyo3::types::{PyDict, PyAny, PyBytes, PyList, PyString, PyTuple, PySet, PyFrozenSet};
 use ahash::{AHashMap, AHasher};
 use std::hash::{Hash, Hasher};
 use lz4_flex::compress_prepend_size;
@@ -14,6 +14,13 @@ mod errors;
 const BATCH_SIZE: usize = 8;
 const CACHE_LINE_SIZE: usize = 64;
 const PARALLEL_COMPRESSION_THRESHOLD: usize = 1_000_000; // 1MB
+
+// Type tags with metadata preservation
+const TAG_DATETIME: u8 = 0xD1;  // datetime with ISO 8601
+const TAG_DATE: u8 = 0xD2;      // date with ISO 8601
+const TAG_TIME: u8 = 0xD3;      // time with ISO 8601
+const TAG_UUID: u8 = 0xD4;      // UUID as hex string
+const TAG_DECIMAL: u8 = 0xD5;   // Decimal as string
 
 // BRANCH PREDICTION HINTS (stable alternatives)
 #[inline(always)]
@@ -64,14 +71,21 @@ impl BFast {
             self.work_buffer.reserve(estimated_size);
         }
         
+        // Reserve space for header
         let header_pos = self.work_buffer.len();
         self.work_buffer.extend_from_slice(&[0u8; 6]);
+        
+        // Write string table placeholder (will be filled later)
+        let string_table_pos = self.work_buffer.len();
         
         // SIMD batch processing for lists
         if let Ok(list) = obj.downcast::<PyList>() {
             if list.len() > 8 {
                 if let Ok(()) = self.serialize_pydantic_simd_batch(list) {
+                    // Insert string table after header, before payload
+                    let payload = self.work_buffer.split_off(string_table_pos);
                     self.write_string_table_vectorized()?;
+                    self.work_buffer.extend_from_slice(&payload);
                     self.write_header_simd(header_pos, compress);
                     
                     let final_data = if compress && self.work_buffer.len() > 256 {
@@ -90,7 +104,11 @@ impl BFast {
         }
         
         self.serialize_any_optimized(obj)?;
+        
+        // Insert string table after header, before payload
+        let payload = self.work_buffer.split_off(string_table_pos);
         self.write_string_table_vectorized()?;
+        self.work_buffer.extend_from_slice(&payload);
         self.write_header_simd(header_pos, compress);
         
         let final_data = if compress && self.work_buffer.len() > 256 {
@@ -393,6 +411,57 @@ impl BFast {
             return Ok(());
         }
 
+        if let Ok(b) = val.extract::<bool>() {
+            self.work_buffer.push(if b { 0x21 } else { 0x20 });
+            return Ok(());
+        }
+
+        // Check special types BEFORE basic types (Decimal can be extracted as f64)
+        // Decimal
+        if let Ok(type_name) = val.get_type().name() {
+            if type_name == "Decimal" {
+                let dec_str = val.str()?.extract::<String>()?;
+                self.work_buffer.push(TAG_DECIMAL);
+                let bytes = dec_str.as_bytes();
+                self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                self.work_buffer.extend_from_slice(bytes);
+                return Ok(());
+            }
+        }
+        
+        // datetime, date, time (ISO 8601) with type preservation
+        if val.hasattr("isoformat")? {
+            let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
+            let type_name = val.get_type().name()?;
+            
+            let tag = match type_name {
+                "datetime" => TAG_DATETIME,
+                "date" => TAG_DATE,
+                "time" => TAG_TIME,
+                _ => 0x50,
+            };
+            
+            self.work_buffer.push(tag);
+            let bytes = iso_str.as_bytes();
+            self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            self.work_buffer.extend_from_slice(bytes);
+            return Ok(());
+        }
+        
+        // UUID
+        if val.hasattr("hex")? {
+            if let Ok(type_name) = val.get_type().name() {
+                if type_name == "UUID" {
+                    let hex_str = val.getattr("hex")?.extract::<String>()?;
+                    self.work_buffer.push(TAG_UUID);
+                    let bytes = hex_str.as_bytes();
+                    self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    self.work_buffer.extend_from_slice(bytes);
+                    return Ok(());
+                }
+            }
+        }
+
         if let Ok(n) = val.extract::<i64>() {
             if n >= 0 && n <= 15 {
                 self.work_buffer.push(0x30 | (n as u8));
@@ -402,9 +471,10 @@ impl BFast {
             }
             return Ok(());
         }
-
-        if let Ok(b) = val.extract::<bool>() {
-            self.work_buffer.push(if b { 0x21 } else { 0x20 });
+        
+        if let Ok(f) = val.extract::<f64>() {
+            self.work_buffer.push(0x40);
+            self.work_buffer.extend_from_slice(&f.to_le_bytes());
             return Ok(());
         }
 
@@ -416,6 +486,14 @@ impl BFast {
             self.work_buffer.extend_from_slice(bytes);
             return Ok(());
         }
+        
+        // bytes / bytearray (check before collections)
+        if let Ok(py_bytes) = val.extract::<&[u8]>() {
+            self.work_buffer.push(0x80);
+            self.work_buffer.extend_from_slice(&(py_bytes.len() as u32).to_le_bytes());
+            self.work_buffer.extend_from_slice(py_bytes);
+            return Ok(());
+        }
 
         if let Ok(list) = val.downcast::<PyList>() {
             self.work_buffer.push(0x60);
@@ -423,6 +501,41 @@ impl BFast {
             self.work_buffer.extend_from_slice(&(len as u32).to_le_bytes());
             
             for item in list.iter() {
+                self.serialize_any_optimized(item)?;
+            }
+            return Ok(());
+        }
+        
+        // tuple (serialize as list)
+        if let Ok(tuple) = val.downcast::<PyTuple>() {
+            self.work_buffer.push(0x60);
+            let len = tuple.len();
+            self.work_buffer.extend_from_slice(&(len as u32).to_le_bytes());
+            
+            for item in tuple.iter() {
+                self.serialize_any_optimized(item)?;
+            }
+            return Ok(());
+        }
+        
+        // set / frozenset (serialize as list)
+        if let Ok(set) = val.downcast::<PySet>() {
+            self.work_buffer.push(0x60);
+            let len = set.len();
+            self.work_buffer.extend_from_slice(&(len as u32).to_le_bytes());
+            
+            for item in set.iter() {
+                self.serialize_any_optimized(item)?;
+            }
+            return Ok(());
+        }
+        
+        if let Ok(frozenset) = val.downcast::<PyFrozenSet>() {
+            self.work_buffer.push(0x60);
+            let len = frozenset.len();
+            self.work_buffer.extend_from_slice(&(len as u32).to_le_bytes());
+            
+            for item in frozenset.iter() {
                 self.serialize_any_optimized(item)?;
             }
             return Ok(());
@@ -442,28 +555,71 @@ impl BFast {
             self.work_buffer.extend_from_slice(byte_slice);
             return Ok(());
         }
-
-        let dict = if let Ok(d) = val.downcast::<PyDict>() {
-            d
-        } else {
-            val.getattr("__dict__")?.downcast::<PyDict>()?
-        };
-
-        self.work_buffer.push(0x70);
         
-        for (k, v) in dict.iter() {
-            let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
-                py_str.to_str()?
-            } else {
-                &k.to_string()
-            };
+        // Check for dict or __dict__ (Pydantic models)
+        if let Ok(dict) = val.downcast::<PyDict>() {
+            self.work_buffer.push(0x70);
             
-            let id = self.get_or_create_string_id_fast(key_str);
-            self.work_buffer.extend_from_slice(&id.to_le_bytes());
-            self.serialize_any_optimized(v)?;
+            for (k, v) in dict.iter() {
+                let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
+                    py_str.to_str()?
+                } else {
+                    &k.to_string()
+                };
+                
+                let id = self.get_or_create_string_id_fast(key_str);
+                self.work_buffer.extend_from_slice(&id.to_le_bytes());
+                self.serialize_any_optimized(v)?;
+            }
+            
+            self.work_buffer.push(0x7F);
+            return Ok(());
         }
         
-        self.work_buffer.push(0x7F);
+        // Enum (extract value) - check BEFORE __dict__
+        if val.hasattr("value")? && val.hasattr("name")? {
+            // Check if it's actually an Enum by checking the type name
+            if let Ok(type_name) = val.get_type().name() {
+                // Python Enum types have names like "Priority", "Status", etc.
+                // Check if it has __class__.__bases__ that includes Enum
+                if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
+                    let bases_str = bases.str()?.extract::<String>()?;
+                    if bases_str.contains("Enum") {
+                        let enum_value = val.getattr("value")?;
+                        return self.serialize_any_optimized(enum_value);
+                    }
+                }
+            }
+        }
+        
+        // Try __dict__ for Pydantic models
+        if let Ok(dict_attr) = val.getattr("__dict__") {
+            if let Ok(dict) = dict_attr.downcast::<PyDict>() {
+                self.work_buffer.push(0x70);
+                
+                for (k, v) in dict.iter() {
+                    let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
+                        py_str.to_str()?
+                    } else {
+                        &k.to_string()
+                    };
+                    
+                    let id = self.get_or_create_string_id_fast(key_str);
+                    self.work_buffer.extend_from_slice(&id.to_le_bytes());
+                    self.serialize_any_optimized(v)?;
+                }
+                
+                self.work_buffer.push(0x7F);
+                return Ok(());
+            }
+        }
+        
+        // Fallback: convert to string
+        let str_repr = val.str()?.extract::<String>()?;
+        self.work_buffer.push(0x50);
+        let bytes = str_repr.as_bytes();
+        self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        self.work_buffer.extend_from_slice(bytes);
         Ok(())
     }
 }
