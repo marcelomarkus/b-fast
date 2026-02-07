@@ -1,33 +1,41 @@
-# Guia de Início Rápido - Backend Python
+# Quick Start Guide - Python Backend
 
-## Instalação
+## Installation
 ```bash
-pip install bfast-py
-# ou
 uv add bfast-py
+# or
+pip install bfast-py
 ```
 
-## Uso Básico
+## Basic Usage
 
-### Serialização Simples
+### Simple Serialization
 ```python
 import b_fast
 
-# Criar encoder (reutilize para melhor performance)
+# Create encoder
 encoder = b_fast.BFast()
 
-data = {"id": 1, "name": "João", "active": True}
+# Your data
+data = [{"id": i, "name": f"User {i}"} for i in range(1000)]
 
-# Serializar
-binary_data = encoder.encode(data)
+# Serialize
+encoded = encoder.encode_packed(data, compress=True)
+print(f"Size: {len(encoded)} bytes")
 
-# Com compressão (recomendado para payloads > 10KB)
+# Deserialize
+decoded = encoder.decode_packed(encoded)
+```
+
+### Compression
+```python
+# With compression (recommended for > 1KB)
 compressed_data = encoder.encode_packed(data, compress=True)
 ```
 
-### Integração com FastAPI
+### FastAPI Integration ⭐ Recommended
 
-#### Resposta Customizada
+#### Custom Response
 ```python
 from fastapi import Response
 import b_fast
@@ -43,7 +51,7 @@ class BFastResponse(Response):
         return self.encoder.encode_packed(content, compress=True)
 ```
 
-#### Aplicação na Rota
+#### Route Application
 ```python
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -57,42 +65,11 @@ class User(BaseModel):
 
 @app.get("/users", response_class=BFastResponse)
 async def get_users():
-    return [User(id=i, name=f"User {i}", email=f"user{i}@example.com") 
-            for i in range(1000)]
+    return [User(id=i, name=f"User {i}", email=f"user{i}@example.com") for i in range(1000)]
 ```
 
-### Trabalhando com Pydantic
-```python
-from pydantic import BaseModel
-import b_fast
+## Next Steps
 
-class Product(BaseModel):
-    id: int
-    name: str
-    price: float
-    in_stock: bool
-
-encoder = b_fast.BFast()
-products = [Product(id=1, name="Laptop", price=999.99, in_stock=True)]
-
-# B-FAST lê diretamente da memória do Pydantic (sem .model_dump())
-binary_data = encoder.encode(products)
-```
-
-### NumPy Arrays
-```python
-import numpy as np
-import b_fast
-
-encoder = b_fast.BFast()
-
-# Zero-copy serialization
-array = np.array([1, 2, 3, 4, 5])
-data = {"tensor": array, "metadata": {"shape": array.shape}}
-
-binary_data = encoder.encode(data)
-```
-
-## Próximos Passos
-- [Frontend TypeScript](frontend.md) - Como consumir no cliente
-- [Otimização](performance.md) - Dicas de performance
+- [Frontend Integration](frontend.md) - TypeScript client setup
+- [Performance](performance.md) - Detailed benchmarks
+- [Troubleshooting](troubleshooting.md) - Common issues

@@ -1,7 +1,11 @@
 """B-FAST Format Comparison Demo"""
-from pydantic import BaseModel
-import b_fast
+
 import time
+
+from pydantic import BaseModel
+
+import b_fast
+
 
 class User(BaseModel):
     id: int
@@ -10,6 +14,7 @@ class User(BaseModel):
     active: bool
     scores: list[float]
 
+
 # Create test data
 users = [
     User(
@@ -17,7 +22,7 @@ users = [
         name=f"User {i}",
         email=f"user{i}@example.com",
         active=i % 2 == 0,
-        scores=[float(i * j) for j in range(5)]
+        scores=[float(i * j) for j in range(5)],
     )
     for i in range(10000)
 ]
@@ -38,17 +43,19 @@ start = time.perf_counter()
 compressed = encoder.encode_packed(users, compress=True)
 time_compressed = (time.perf_counter() - start) * 1000
 
-print(f"\n📊 Results (10,000 Pydantic objects):\n")
-print(f"1. B-FAST Normal:")
+print("\n📊 Results (10,000 Pydantic objects):\n")
+print("1. B-FAST Normal:")
 print(f"   Time:    {time_normal:6.2f}ms")
 print(f"   Size:    {len(normal):,} bytes")
-print(f"   Use:     REST APIs, general transfer")
+print("   Use:     REST APIs, general transfer")
 
-print(f"\n2. B-FAST + LZ4 (Compressed):")
+print("\n2. B-FAST + LZ4 (Compressed):")
 print(f"   Time:    {time_compressed:6.2f}ms")
-print(f"   Size:    {len(compressed):,} bytes ({(1-len(compressed)/len(normal))*100:.1f}% smaller)")
-print(f"   Use:     Slow networks, Mobile/IoT")
-print(f"   Note:    Parallel compression active for payloads > 1MB")
+print(
+    f"   Size:    {len(compressed):,} bytes ({(1-len(compressed)/len(normal))*100:.1f}% smaller)"
+)
+print("   Use:     Slow networks, Mobile/IoT")
+print("   Note:    Parallel compression active for payloads > 1MB")
 
 print("\n" + "=" * 70)
 print("✅ Optimizations implemented:")

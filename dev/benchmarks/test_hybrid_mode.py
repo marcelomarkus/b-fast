@@ -4,13 +4,16 @@ B-FAST Hybrid Mode Benchmark
 Demonstrates automatic mode switching between simple and complex types
 """
 
-import b_fast
-import orjson
 import time
-from pydantic import BaseModel
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
+
+import orjson
+from pydantic import BaseModel
+
+import b_fast
+
 
 # Simple model (triggers fast mode)
 class SimpleUser(BaseModel):
@@ -19,6 +22,7 @@ class SimpleUser(BaseModel):
     email: str
     age: int
     active: bool
+
 
 # Complex model (triggers complex mode)
 class ComplexUser(BaseModel):
@@ -31,9 +35,10 @@ class ComplexUser(BaseModel):
     balance: Decimal
     active: bool
 
+
 def benchmark(data, label):
     encoder = b_fast.BFast()
-    
+
     # B-FAST
     times = []
     for _ in range(100):
@@ -41,24 +46,25 @@ def benchmark(data, label):
         encoder.encode_packed(data, compress=False)
         times.append((time.perf_counter() - start) * 1000)
     bfast_time = sum(times) / len(times)
-    
+
     # orjson
     times = []
     for _ in range(100):
         start = time.perf_counter()
-        orjson.dumps([d.model_dump(mode='json') for d in data])
+        orjson.dumps([d.model_dump(mode="json") for d in data])
         times.append((time.perf_counter() - start) * 1000)
     orjson_time = sum(times) / len(times)
-    
+
     ratio = orjson_time / bfast_time
     winner = "🚀 B-FAST" if ratio > 1 else "orjson"
-    
+
     print(f"\n{label}:")
     print(f"   B-FAST: {bfast_time:.2f}ms")
     print(f"   orjson: {orjson_time:.2f}ms")
     print(f"   {winner} is {abs(ratio):.2f}x faster")
-    
+
     return bfast_time, orjson_time
+
 
 print("=" * 70)
 print("B-FAST Hybrid Mode Benchmark")
@@ -71,7 +77,7 @@ simple_data = [
         name=f"User{i}",
         email=f"user{i}@test.com",
         age=25 + (i % 50),
-        active=i % 2 == 0
+        active=i % 2 == 0,
     )
     for i in range(10000)
 ]
@@ -86,7 +92,7 @@ complex_data = [
         birth_date=date(1990, 5, 20),
         user_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
         balance=Decimal("1234.56"),
-        active=i % 2 == 0
+        active=i % 2 == 0,
     )
     for i in range(10000)
 ]
@@ -97,7 +103,9 @@ bfast_complex, orjson_complex = benchmark(complex_data, "📊 Complex Objects (1
 print("\n" + "=" * 70)
 print("Summary:")
 print("=" * 70)
-print(f"✅ Simple mode:  B-FAST is {orjson_simple/bfast_simple:.2f}x faster than orjson")
+print(
+    f"✅ Simple mode:  B-FAST is {orjson_simple/bfast_simple:.2f}x faster than orjson"
+)
 print(f"✅ Complex mode: B-FAST is {bfast_complex:.2f}ms (preserves types)")
-print(f"\n💡 B-FAST automatically detects and optimizes for both scenarios!")
+print("\n💡 B-FAST automatically detects and optimizes for both scenarios!")
 print("=" * 70)

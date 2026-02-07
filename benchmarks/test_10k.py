@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """B-FAST Performance Test - 10k Objects"""
+
 import time
+
 from pydantic import BaseModel
+
 import b_fast
 
 

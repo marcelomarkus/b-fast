@@ -1,22 +1,27 @@
 """Test extended type support: datetime, UUID, Decimal, Enum, bytes, tuple, set"""
-import b_fast
-from datetime import datetime, date, time
+
+from datetime import date, datetime, time
 from decimal import Decimal
-from uuid import UUID, uuid4
 from enum import Enum
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel
+
+import b_fast
+
 
 class Status(Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     PENDING = "pending"
 
+
 class ExtendedModel(BaseModel):
     # Basic types
     name: str
     age: int
     active: bool
-    
+
     # Extended types
     created_at: datetime
     birth_date: date
@@ -24,15 +29,16 @@ class ExtendedModel(BaseModel):
     user_id: UUID
     balance: Decimal
     status: Status
-    
+
     # Collections
     tags: tuple[str, ...]
     unique_ids: set[int]
     data: bytes
 
+
 def test_extended_types():
     encoder = b_fast.BFast()
-    
+
     # Create test data
     model = ExtendedModel(
         name="John Doe",
@@ -46,9 +52,9 @@ def test_extended_types():
         status=Status.ACTIVE,
         tags=("python", "rust", "fastapi"),
         unique_ids={1, 2, 3, 4, 5},
-        data=b"binary data here"
+        data=b"binary data here",
     )
-    
+
     print("Original model:")
     print(f"  name: {model.name}")
     print(f"  age: {model.age}")
@@ -62,11 +68,11 @@ def test_extended_types():
     print(f"  tags: {model.tags}")
     print(f"  unique_ids: {model.unique_ids}")
     print(f"  data: {model.data}")
-    
+
     # Encode (pass as list to test serialization of individual fields)
     encoded = encoder.encode_packed([model], compress=False)
     print(f"\nEncoded size: {len(encoded)} bytes")
-    
+
     print("\n✅ All extended types serialized successfully!")
     print("\nType support validated:")
     print("  ✅ datetime → ISO 8601 string")
@@ -78,6 +84,7 @@ def test_extended_types():
     print("  ✅ tuple → list")
     print("  ✅ set → list")
     print("  ✅ bytes → binary data")
+
 
 if __name__ == "__main__":
     test_extended_types()
