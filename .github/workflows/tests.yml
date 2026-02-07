@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -96,20 +96,22 @@ jobs:
       run: ruff check .
     
     - name: Check Rust formatting
-      run: cargo fmt --check
+      run: |
+        source $HOME/.cargo/env
+        cargo fmt --check
 
   # Gate job - todos os jobs críticos devem passar
   all-tests-passed:
     name: All Tests Passed
     runs-on: ubuntu-latest
-    needs: [test-python, test-typescript, code-quality]
+    needs: [test-python, test-typescript, code-quality, test-integration]
     steps:
     - name: All tests passed
       run: echo "✅ All critical tests passed! Ready for release."
 
   # Teste de integração
   test-integration:
-    name: Integration Tests (Optional)
+    name: Integration Tests
     runs-on: ubuntu-latest
     
     steps:
