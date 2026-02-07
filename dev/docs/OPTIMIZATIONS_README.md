@@ -167,4 +167,4 @@ python examples/optimizations.py
 
 **Desenvolvido por:** [marcelomarkus](https://github.com/marcelomarkus)  
 **Data:** 2026-02-06  
-**Versão:** 1.0.7
+**Versão:** 1.1.0

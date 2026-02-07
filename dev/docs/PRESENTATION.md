@@ -286,7 +286,7 @@ let data = unsafe { rkyv::archived_root(&bytes) };
 **GitHub:** [@marcelomarkus](https://github.com/marcelomarkus)  
 **Docs:** https://marcelomarkus.github.io/b-fast/
 
-**Versão:** 1.0.7  
+**Versão:** 1.1.0  
 **Data:** 2026-02-06
 
 ---

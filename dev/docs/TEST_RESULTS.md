@@ -123,4 +123,4 @@ b_fast.encode_fast(data)
 ---
 
 **Data:** 2026-02-06  
-**Versão:** 1.0.7
+**Versão:** 1.1.0
