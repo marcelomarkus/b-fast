@@ -107,12 +107,10 @@ jobs:
     - name: All tests passed
       run: echo "✅ All critical tests passed! Ready for release."
 
-  # Teste de integração - opcional, não bloqueia release
+  # Teste de integração
   test-integration:
     name: Integration Tests (Optional)
     runs-on: ubuntu-latest
-    # Não tem 'needs', roda em paralelo mas não bloqueia
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
     - uses: actions/checkout@v4
