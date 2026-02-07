@@ -23,11 +23,18 @@ jobs:
       run: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     
-    - name: Install maturin and build
+    - name: Install maturin
       run: |
         source $HOME/.cargo/env
         pip install maturin
-        maturin develop --release
+    
+    - name: Build wheels
+      run: |
+        source $HOME/.cargo/env
+        maturin build --release --out dist
+    
+    - name: Install wheel
+      run: pip install dist/*.whl
     
     - name: Install test dependencies
       run: pip install pytest pydantic numpy
