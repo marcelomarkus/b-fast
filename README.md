@@ -10,9 +10,9 @@ Documentação completa disponível em: **https://marcelomarkus.github.io/b-fast
 - **Motor Rust:** Serialização nativa sem o overhead do interpretador Python.
 - **Pydantic Native:** Lê atributos de modelos Pydantic diretamente da memória, pulando o lento processo de .model_dump().
 - **Zero-Copy NumPy:** Serializa tensores e arrays numéricos diretamente, atingindo a velocidade máxima de I/O de memória.
-- **String Interning:** Chaves repetidas (como nomes de campos em listas de objetos) são enviadas apenas uma vez.
+- **Compressão Paralela:** LZ4 com processamento multi-thread para payloads grandes (>1MB).
 - **Bit-Packing:** Inteiros pequenos e booleanos ocupam apenas 4 bits dentro da tag de tipo.
-- **LZ4 Integrado:** Compressão de blocos ultra-veloz para payloads grandes.
+- **Otimizado para Cache:** Alocação alinhada e processamento em batch para máxima eficiência.
 
 ## 📊 Benchmark (Latência Média)
 Comparação de serialização de uma lista de 10.000 modelos Pydantic complexos:

@@ -6,12 +6,14 @@ use lz4_flex::compress_prepend_size;
 use numpy::PyReadonlyArrayDyn;
 use std::ptr;
 use std::mem;
+use rayon::prelude::*;
 
 mod errors;
 
 // SIMD-optimized constants
 const BATCH_SIZE: usize = 8;
 const CACHE_LINE_SIZE: usize = 64;
+const PARALLEL_COMPRESSION_THRESHOLD: usize = 1_000_000; // 1MB
 
 // BRANCH PREDICTION HINTS (stable alternatives)
 #[inline(always)]
@@ -73,7 +75,11 @@ impl BFast {
                     self.write_header_simd(header_pos, compress);
                     
                     let final_data = if compress && self.work_buffer.len() > 256 {
-                        compress_prepend_size(&self.work_buffer)
+                        if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
+                            self.compress_parallel()
+                        } else {
+                            compress_prepend_size(&self.work_buffer)
+                        }
                     } else {
                         mem::take(&mut self.work_buffer)
                     };
@@ -88,7 +94,11 @@ impl BFast {
         self.write_header_simd(header_pos, compress);
         
         let final_data = if compress && self.work_buffer.len() > 256 {
-            compress_prepend_size(&self.work_buffer)
+            if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
+                self.compress_parallel()
+            } else {
+                compress_prepend_size(&self.work_buffer)
+            }
         } else {
             mem::take(&mut self.work_buffer)
         };
@@ -98,6 +108,35 @@ impl BFast {
 }
 
 impl BFast {
+    fn compress_parallel(&self) -> Vec<u8> {
+        const CHUNK_SIZE: usize = 256 * 1024; // 256KB chunks
+        
+        let data = &self.work_buffer;
+        let total_size = data.len();
+        
+        if total_size < CHUNK_SIZE * 2 {
+            return compress_prepend_size(data);
+        }
+        
+        // Split into chunks and compress in parallel
+        let chunks: Vec<Vec<u8>> = data
+            .par_chunks(CHUNK_SIZE)
+            .map(|chunk| compress_prepend_size(chunk))
+            .collect();
+        
+        // Merge compressed chunks
+        let mut result = Vec::with_capacity(total_size / 2);
+        result.extend_from_slice(&(total_size as u32).to_le_bytes());
+        result.extend_from_slice(&(chunks.len() as u32).to_le_bytes());
+        
+        for chunk in &chunks {
+            result.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+            result.extend_from_slice(chunk);
+        }
+        
+        result
+    }
+
     #[inline(always)]
     fn serialize_pydantic_simd_batch(&mut self, list: &PyList) -> PyResult<()> {
         let len = list.len();
