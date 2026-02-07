@@ -75,15 +75,23 @@ class BFastParser {
         if (tag === 0x20) return false;
         if (tag === 0x21) return true;
         
-        // Small integers (bit-packed)
-        if ((tag & 0xF0) === 0x30) return tag & 0x0F;
-        
-        // Int64
+        // Int64 (check BEFORE small integers to avoid 0x38 being caught by 0x3X pattern)
         if (tag === 0x38) {
             this.checkBounds(8);
             const value = this.view.getBigInt64(this.offset, true);
             this.offset += 8;
             return Number(value);
+        }
+        
+        // Small integers (bit-packed)
+        if ((tag & 0xF0) === 0x30) return tag & 0x0F;
+        
+        // Float64
+        if (tag === 0x40) {
+            this.checkBounds(8);
+            const value = this.view.getFloat64(this.offset, true);
+            this.offset += 8;
+            return value;
         }
         
         // Raw string
@@ -134,23 +142,15 @@ class BFastParser {
             return obj;
         }
         
-        // UUID
+        // Bytes
         if (tag === 0x80) {
-            this.checkBounds(16);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, 16);
-            this.offset += 16;
-            
-            // Convert to standard UUID format
-            const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-            return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-        }
-        
-        // DateTime (Unix timestamp)
-        if (tag === 0x81) {
-            this.checkBounds(8);
-            const timestamp = this.view.getBigInt64(this.offset, true);
-            this.offset += 8;
-            return new Date(Number(timestamp) * 1000);
+            this.checkBounds(4);
+            const length = this.view.getUint32(this.offset, true);
+            this.offset += 4;
+            this.checkBounds(length);
+            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            this.offset += length;
+            return bytes;
         }
         
         // NumPy Array (f64)
@@ -166,6 +166,66 @@ class BFastParser {
                 this.offset += 8;
             }
             return Array.from(array);
+        }
+        
+        // DateTime (0xD1) - ISO 8601 string
+        if (tag === 0xD1) {
+            this.checkBounds(4);
+            const length = this.view.getUint32(this.offset, true);
+            this.offset += 4;
+            this.checkBounds(length);
+            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            this.offset += length;
+            const isoString = new TextDecoder().decode(bytes);
+            return new Date(isoString);
+        }
+        
+        // Date (0xD2) - ISO 8601 date string
+        if (tag === 0xD2) {
+            this.checkBounds(4);
+            const length = this.view.getUint32(this.offset, true);
+            this.offset += 4;
+            this.checkBounds(length);
+            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            this.offset += length;
+            const isoString = new TextDecoder().decode(bytes);
+            return new Date(isoString);
+        }
+        
+        // Time (0xD3) - ISO 8601 time string
+        if (tag === 0xD3) {
+            this.checkBounds(4);
+            const length = this.view.getUint32(this.offset, true);
+            this.offset += 4;
+            this.checkBounds(length);
+            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            this.offset += length;
+            return new TextDecoder().decode(bytes);
+        }
+        
+        // UUID (0xD4) - hex string
+        if (tag === 0xD4) {
+            this.checkBounds(4);
+            const length = this.view.getUint32(this.offset, true);
+            this.offset += 4;
+            this.checkBounds(length);
+            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            this.offset += length;
+            const hex = new TextDecoder().decode(bytes);
+            // Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        }
+        
+        // Decimal (0xD5) - decimal string
+        if (tag === 0xD5) {
+            this.checkBounds(4);
+            const length = this.view.getUint32(this.offset, true);
+            this.offset += 4;
+            this.checkBounds(length);
+            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            this.offset += length;
+            const decimalString = new TextDecoder().decode(bytes);
+            return parseFloat(decimalString);
         }
         
         throw new BFastError(`Unknown tag: 0x${tag.toString(16).padStart(2, '0')}`);

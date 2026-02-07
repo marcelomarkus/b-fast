@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-02-07
+
+### 🚀 Features
+- **Extended Type Support**: datetime, date, time, UUID, Decimal, Enum, tuple, set, frozenset, bytes, bytearray
+- **Type Preservation**: Special tags (0xD1-0xD5) for native type preservation
+- **Parallel LZ4 Compression**: Multi-threaded compression for payloads >1MB
+- **Custom Allocator**: Allocator for optimized memory management
+
+### ⚡ Performance
+- **1.7x faster** than orjson for simple objects (4.83ms vs 8.19ms)
+- **5.7x faster** than orjson on 100 Mbps networks (16.1ms vs 91.7ms round-trip)
+- **14x faster** than orjson for NumPy arrays
+- **89% payload reduction** with LZ4 compression
+- Memory allocation improvements and buffer pre-allocation
+- Optimized type checking and recursion depth protection
+
+### 🧪 Testing
+- Added 25 comprehensive tests (100% passing)
+- Integration tests for type preservation
+- Python → TypeScript type preservation tests
+- Benchmarks for all extended types
+
+### 📚 Documentation
+- Translated README to English
+- Added project philosophy and messaging
+- Updated all benchmarks with latest results
+- Added "Recommended" badge to FastAPI integration
+- Added `uv` installation option
+- Fixed multilingual docs structure
+
+### 🔧 Technical
+- TypeScript client updated with type decoders
+- Code formatted with black and ruff
+- Improved error handling and validation
+
 ## [1.0.7] - 2026-02-04
 
 ### 📚 Documentation
