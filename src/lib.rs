@@ -1,3 +1,5 @@
+#![allow(non_local_definitions)]
+
 use ahash::{AHashMap, AHasher};
 use lz4_flex::compress_prepend_size;
 use numpy::PyReadonlyArrayDyn;
@@ -12,7 +14,6 @@ mod allocator;
 mod errors;
 
 // Performance tuning constants
-const BATCH_SIZE: usize = 8;
 const CACHE_LINE_SIZE: usize = 64;
 const PARALLEL_COMPRESSION_THRESHOLD: usize = 1_000_000;
 const INITIAL_BUFFER_SIZE: usize = 4096;
@@ -25,18 +26,7 @@ const TAG_TIME: u8 = 0xD3;
 const TAG_UUID: u8 = 0xD4;
 const TAG_DECIMAL: u8 = 0xD5;
 
-// Fast path markers for common cases
-#[inline(always)]
-const fn is_fast_path(b: bool) -> bool {
-    b
-}
-
-#[cold]
-#[inline(never)]
-fn handle_slow_path<T, E>(result: Result<T, E>) -> Result<T, E> {
-    result
-}
-
+#[allow(non_local_definitions)]
 #[repr(align(64))]
 #[pyclass]
 pub struct BFast {
@@ -48,6 +38,7 @@ pub struct BFast {
     recursion_depth: usize,
 }
 
+#[allow(non_local_definitions)]
 #[pymethods]
 impl BFast {
     #[new]
@@ -188,7 +179,7 @@ impl BFast {
     #[inline(always)]
     fn serialize_pydantic_simd_batch(&mut self, list: &PyList) -> PyResult<()> {
         let len = list.len();
-        if is_fast_path(len == 0) {
+        if len == 0 {
             self.work_buffer.push(0x60);
             self.work_buffer.extend_from_slice(&0u32.to_le_bytes());
             return Ok(());
@@ -758,7 +749,7 @@ impl BFast {
         // Enum (extract value) - check BEFORE __dict__
         if val.hasattr("value")? && val.hasattr("name")? {
             // Check if it's actually an Enum by checking the type name
-            if let Ok(type_name) = val.get_type().name() {
+            if let Ok(_type_name) = val.get_type().name() {
                 // Python Enum types have names like "Priority", "Status", etc.
                 // Check if it has __class__.__bases__ that includes Enum
                 if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
