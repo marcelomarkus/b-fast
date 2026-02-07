@@ -34,4 +34,4 @@ benchmark_results.png
 *.bin
 
 # Internal/Strategic docs
-docs/specification.md
+docs/specification.md/dev/

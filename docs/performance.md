@@ -2,84 +2,82 @@
 
 ## Overview
 
-B-FAST (Binary Fast Adaptive Serialization Transfer) é um protocolo de serialização binária otimizado para casos de uso específicos onde largura de banda e performance de rede são críticos.
+B-FAST (Binary Fast Adaptive Serialization Transfer) is a binary serialization protocol optimized for bandwidth-constrained environments while maintaining excellent CPU performance.
 
 ## 🎯 Performance Summary
 
-### Serialização Pura (10k Pydantic Objects)
-- **B-FAST**: 4.67ms (2.2x mais rápido que JSON)
-- **B-FAST + LZ4**: 5.27ms (1.9x mais rápido que JSON)
-- **Compressão**: 79% redução de payload
+### Simple Objects (10k)
+- **B-FAST**: 4.83ms
+- **orjson**: 8.19ms
+- **JSON**: 12.0ms
+- **🚀 1.7x faster than orjson!**
 
 ### Round-Trip Performance (Serialize + Network + Deserialize)
 
 #### 100 Mbps Network
-- **B-FAST + LZ4**: 28.3ms
-- **JSON**: 114.3ms (4.0x mais lento)
-- **orjson**: 92.3ms (3.3x mais lento)
+- **B-FAST + LZ4**: 16.1ms
+- **orjson**: 91.7ms
+- **JSON**: 114.5ms
+- **🚀 5.7x faster than orjson!**
 
 #### 1 Gbps Network  
-- **B-FAST + LZ4**: 10.2ms
-- **JSON**: 29.3ms (2.9x mais lento)
-- **orjson**: 15.9ms (1.6x mais lento)
+- **B-FAST + LZ4**: 7.2ms
+- **orjson**: 15.3ms
+- **JSON**: 29.4ms
+- **🚀 2.1x faster than orjson!**
 
 #### 10 Gbps Network
-- **B-FAST + LZ4**: 8.4ms
-- **orjson**: 8.3ms (empate técnico)
-- **JSON**: 20.8ms (2.5x mais lento)
+- **B-FAST + LZ4**: 6.3ms
+- **orjson**: 7.7ms
+- **JSON**: 20.9ms
+- **🚀 1.2x faster than orjson!**
 
 ## 🚀 Specialized Performance
 
-### NumPy Arrays
-- **148x mais rápido** que JSON
-- **11x mais rápido** que orjson
-- **Zero-copy serialization**
-
-### Primitivos
-- **Integers**: 3.2x mais rápido que JSON
-- **Booleans**: 3.8x mais rápido que JSON
-- **Strings**: Performance equivalente ao JSON
+### NumPy Arrays (8MB)
+- **B-FAST**: 3.29ms
+- **orjson**: 46.34ms
+- **JSON**: 318.21ms
+- **🚀 14x faster than orjson!**
+- **🚀 96x faster than JSON!**
 
 ## 🎯 Ideal Use Cases
 
 ### ✅ B-FAST Excels When:
-1. **Network bandwidth is limited** (mobile, IoT)
-2. **Data transfer costs matter** (cloud, CDN)
-3. **NumPy arrays are involved** (ML, data science)
-4. **Storage efficiency is important** (caching, archives)
+1. **Network bandwidth is limited** (mobile, IoT) - 5.7x faster
+2. **Simple objects** - 1.7x faster than orjson
+3. **NumPy arrays are involved** (ML, data science) - 14-96x faster
+4. **Storage efficiency is important** - 89% compression
+5. **Large datasets** - Up to 5.7x faster on slow networks
 
 ### ❌ Consider Alternatives When:
-1. **Ultra-fast networks** (10+ Gbps internal)
-2. **CPU is severely constrained**
-3. **Simple data structures only**
-4. **Ecosystem compatibility is critical**
+1. **Ultra-fast networks** (10+ Gbps internal) - marginal difference
+2. **Ecosystem compatibility is critical** - JSON is still standard
+3. **Very small payloads** (< 1KB) - compression overhead
 
 ## 📈 Performance Characteristics
 
 ### Linear Scaling
 B-FAST performance scales linearly with data size:
-- **100 objects**: 5.6μs per object
-- **1,000 objects**: 5.5μs per object  
-- **10,000 objects**: 2.7μs per object
+- **100 objects**: ~5.6μs per object
+- **1,000 objects**: ~5.5μs per object  
+- **10,000 objects**: ~4.8μs per object
 
 ### Memory Efficiency
 - **Zero-copy NumPy arrays**
-- **String interning** for repeated keys
-- **Bit-packing** for small integers and booleans
 - **Cache-aligned memory** operations
+- **Efficient compression** with LZ4
 
 ## 🔬 Technical Optimizations
 
 ### Rust Implementation
-- **SIMD batch processing** (8 objects at once)
-- **Branch prediction hints** for common types
-- **Hash-based string caching** (64-entry cache)
-- **Unrolled loops** for 5-field Pydantic objects
 - **Direct memory access** with unsafe operations
+- **Efficient type detection** and serialization
+- **Optimized Pydantic integration** - reads directly from memory
 
 ### Compression
 - **Built-in LZ4** compression
-- **0.32ms decompress time** for 252KB payload
+- **Fast decompression** for client-side
 - **No external dependencies** required
 
 ## 🌐 Network Analysis
@@ -88,16 +86,15 @@ B-FAST's advantage increases as network speed decreases:
 
 | Network Speed | B-FAST Advantage |
 |---------------|------------------|
-| 100 Mbps | 4.0x faster than JSON |
-| 1 Gbps | 2.9x faster than JSON |
-| 10 Gbps | 2.5x faster than JSON |
+| 100 Mbps | 5.7x faster than orjson |
+| 1 Gbps | 2.1x faster than orjson |
+| 10 Gbps | 1.2x faster than orjson |
 
 ## 📊 Benchmark Methodology
 
 ### Test Environment
-- **Hardware**: Standard development machine
 - **Data**: 10,000 complex Pydantic objects
-- **Iterations**: 10 runs with warmup
+- **Iterations**: Multiple runs with warmup
 - **Network**: Simulated transfer times
 
 ### Test Data Structure
@@ -118,4 +115,10 @@ class User(BaseModel):
 
 ## 🎯 Conclusion
 
-B-FAST achieves its design goal of being the optimal choice for bandwidth-constrained environments while maintaining competitive CPU performance. The 79% payload reduction combined with 2.2x serialization speedup makes it ideal for mobile, IoT, and data-intensive applications.
+B-FAST achieves its design goal of being the optimal choice for bandwidth-constrained environments while maintaining competitive CPU performance. The 89% payload reduction combined with 1.7x serialization speedup makes it ideal for mobile, IoT, and data-intensive applications.
+
+## 📚 Next Steps
+
+- [Troubleshooting](troubleshooting.md) - Troubleshooting guide
+- [Frontend](frontend.md) - TypeScript integration
+- [Home](index.md) - Back to home
