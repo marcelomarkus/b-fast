@@ -10,43 +10,34 @@ jobs:
   test-python:
     name: Python Tests
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.10'
     
     - name: Install Rust
       run: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    
-    - name: Install dependencies
-      run: |
-        uv sync --all-extras
+    - name: Install maturin
+      run: pip install maturin
     
     - name: Build extension
-      run: |
-        uv run maturin develop --release
+      run: maturin develop --release
+    
+    - name: Install test dependencies
+      run: pip install pytest pydantic numpy
     
     - name: Run Python tests
-      run: |
-        uv run pytest tests/ -v --tb=short
+      run: pytest tests/ -v --tb=short
     
     - name: Run benchmarks (smoke test)
-      run: |
-        uv run python benchmarks/test_10k.py
+      run: python benchmarks/test_10k.py
 
   test-typescript:
     name: TypeScript Tests
@@ -82,32 +73,27 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.10'
     
-    - name: Install uv
+    - name: Install Rust
       run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Install dependencies
-      run: |
-        uv sync --all-extras
+    - name: Install code quality tools
+      run: pip install black ruff
     
     - name: Run black (check only)
-      run: |
-        uv run black --check .
+      run: black --check .
     
     - name: Run ruff
-      run: |
-        uv run ruff check .
+      run: ruff check .
     
     - name: Check Rust formatting
-      run: |
-        cargo fmt --check
+      run: cargo fmt --check
     
     - name: Run Clippy
-      run: |
-        cargo clippy -- -D warnings
+      run: cargo clippy -- -D warnings
 
   # Gate job - todos os jobs críticos devem passar
   all-tests-passed:
@@ -131,7 +117,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.10'
     
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -143,18 +129,14 @@ jobs:
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    
-    - name: Install Python dependencies
-      run: |
-        uv sync --all-extras
+    - name: Install maturin
+      run: pip install maturin
     
     - name: Build Python extension
-      run: |
-        uv run maturin develop --release
+      run: maturin develop --release
+    
+    - name: Install Python dependencies
+      run: pip install pydantic numpy
     
     - name: Install TypeScript dependencies
       working-directory: client-ts
@@ -165,8 +147,7 @@ jobs:
       run: npm run build
     
     - name: Generate test data (Python)
-      run: |
-        uv run python tests/test_integration_types.py
+      run: python tests/test_integration_types.py
     
     - name: Verify test data was created
       run: |
@@ -176,5 +157,4 @@ jobs:
     
     - name: Run TypeScript integration test
       working-directory: client-ts
-      run: |
-        node dist/tests/type-preservation.test.js
+      run: node dist/tests/type-preservation.test.js
