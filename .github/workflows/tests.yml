@@ -128,13 +128,19 @@ jobs:
     - name: Install Rust
       run: |
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
     - name: Install maturin
-      run: pip install maturin
+      run: |
+        source $HOME/.cargo/env
+        pip install maturin
     
-    - name: Build Python extension
-      run: maturin develop --release
+    - name: Build wheels
+      run: |
+        source $HOME/.cargo/env
+        maturin build --release --out dist
+    
+    - name: Install wheel
+      run: pip install dist/*.whl
     
     - name: Install Python dependencies
       run: pip install pydantic numpy
