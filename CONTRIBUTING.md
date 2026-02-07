@@ -50,8 +50,17 @@ B-FAST is built on the principle of open knowledge sharing. Every contribution, 
 
 1. **Create a feature branch:**
    ```bash
-   git checkout -b feature/your-feature-name
+   git checkout -b feat/your-feature-name
+   # or
+   git checkout -b fix/bug-description
    ```
+   
+   **Branch naming conventions:**
+   - `feat/*` - New features or improvements (e.g., `feat/uuid-support`)
+   - `fix/*` - Bug fixes (e.g., `fix/memory-leak`)
+   - `docs/*` - Documentation only (e.g., `docs/api-examples`)
+   
+   **Note:** CI automatically runs on `feat/*` and `fix/*` branches. Documentation-only changes (`docs/*`) don't trigger CI.
 
 2. **Make your changes** following our coding standards
 
@@ -161,6 +170,13 @@ B-FAST is built on the principle of open knowledge sharing. Every contribution, 
 
 ## 🏷️ Issue Labels
 
+### Automatic Labels (added by CI)
+- `feat` - Feature branch (automatically added to PRs from `feat/*` branches)
+- `fix` - Bug fix branch (automatically added to PRs from `fix/*` branches)
+- `docs` - Documentation branch (automatically added to PRs from `docs/*` branches)
+- `approved-N` - Number of approvals (e.g., `approved-1`, `approved-2`)
+
+### Manual Labels
 - `bug` - Something isn't working
 - `enhancement` - New feature or improvement
 - `documentation` - Documentation improvements

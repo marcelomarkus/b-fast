@@ -1,4 +1,4 @@
-use pyo3::ffi::{PyMem_Malloc, PyMem_Free, PyMem_Realloc};
+use pyo3::ffi::{PyMem_Free, PyMem_Malloc, PyMem_Realloc};
 use std::alloc::{GlobalAlloc, Layout};
 
 pub struct PyMemAllocator;

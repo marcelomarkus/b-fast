@@ -1,0 +1,106 @@
+name: Auto Label
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  label-by-branch:
+    name: Label by Branch Name
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    
+    steps:
+    - name: Add feat label
+      if: startsWith(github.head_ref, 'feat/')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['feat']
+          })
+    
+    - name: Add fix label
+      if: startsWith(github.head_ref, 'fix/')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['fix']
+          })
+    
+    - name: Add docs label
+      if: startsWith(github.head_ref, 'docs/')
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: ['docs']
+          })
+
+  label-by-approval:
+    name: Label by Approvals
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    permissions:
+      pull-requests: write
+    
+    steps:
+    - name: Count approvals and add label
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: reviews } = await github.rest.pulls.listReviews({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number
+          });
+          
+          // Count unique approvals
+          const approvals = new Set();
+          reviews.forEach(review => {
+            if (review.state === 'APPROVED') {
+              approvals.add(review.user.login);
+            }
+          });
+          
+          const count = approvals.size;
+          
+          // Remove old approval labels
+          const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number
+          });
+          
+          for (const label of labels) {
+            if (label.name.startsWith('approved-')) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: label.name
+              });
+            }
+          }
+          
+          // Add new approval label
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: [`approved-${count}`]
+          });
