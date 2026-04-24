@@ -64,11 +64,17 @@ Complete test including network transfer and deserialization (10,000 objects):
 
 ### Backend (Python)
 ```bash
-uv add bfast-py
-```
-or
-```bash
+# Basic installation
 pip install bfast-py
+
+# With FastAPI support
+pip install "bfast-py[fastapi]"
+```
+or with `uv`:
+```bash
+uv add bfast-py
+# or
+uv add "bfast-py[fastapi]"
 ```
 
 ### Frontend (TypeScript)
@@ -81,22 +87,12 @@ npm install bfast-client
 ### Backend (Python)
 
 #### 1. FastAPI (Direct Integration) ⭐ Recommended
-B-FAST integrates seamlessly as a response class.
+B-FAST includes a built-in `BFastResponse` for seamless integration.
 
 ```python
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from pydantic import BaseModel
-import b_fast
-
-class BFastResponse(Response):
-    media_type = "application/x-bfast"
-    
-    def __init__(self, content=None, *args, **kwargs):
-        super().__init__(content, *args, **kwargs)
-        self.encoder = b_fast.BFast()
-
-    def render(self, content) -> bytes:
-        return self.encoder.encode_packed(content, compress=True)
+from b_fast import BFastResponse
 
 app = FastAPI()
 
@@ -106,6 +102,7 @@ class User(BaseModel):
 
 @app.get("/users", response_class=BFastResponse)
 async def get_users():
+    # Returns binary B-FAST data with automatic LZ4 compression
     return [User(id=i, name=f"User {i}") for i in range(1000)]
 ```
 
