@@ -2,12 +2,14 @@ from typing import Any
 
 try:
     from fastapi import Response
+
     FASTAPI_AVAILABLE = True
 except ImportError:
     # Fallback class to prevent crash on import
-    class Response: 
+    class Response:
         def __init__(self, *args, **kwargs):
             pass
+
     FASTAPI_AVAILABLE = False
 
 
@@ -16,11 +18,13 @@ class BFastResponse(Response):
 
     def __init__(self, content: Any, **kwargs):
         if not FASTAPI_AVAILABLE:
-            raise ImportError("FastAPI is required to use BFastResponse. Install it with 'pip install fastapi'.")
-        
+            raise ImportError(
+                "FastAPI is required to use BFastResponse. Install it with 'pip install fastapi'."
+            )
+
         # Delayed import to avoid circular dependency
         from ._b_fast import BFast
-        
+
         super().__init__(content=content, **kwargs)
         self.encoder = BFast()
 
