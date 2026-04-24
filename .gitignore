@@ -35,3 +35,6 @@ benchmark_results.png
 
 # Internal/Strategic docs
 docs/specification.md/dev/
+
+# claude skills
+.claude/
