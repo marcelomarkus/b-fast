@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-04-24
+
+### 🚀 Features
+- **Built-in FastAPI Response**: Added `BFastResponse` directly to the `b_fast` package for easier integration.
+- **Improved Type Support**: Better handling of `BFastError` and updated `BFastResponse` to use built-in encoder.
+
+### 🔧 Fixes
+- **Module Visibility**: Fixed `ModuleNotFoundError`/`ImportError` when using the library in external projects by correctly exporting `BFast` in `__init__.py`.
+- **Typings Organization**: Moved and renamed `.pyi` file to `python/b_fast/_b_fast.pyi` to ensure correct recognition by IDEs and type checkers after installation.
+- **FastAPI Dependency**: Updated `README` to recommend installation with `[fastapi]` extra for projects using FastAPI.
+
+### 📚 Documentation
+- Updated `README` with simplified FastAPI usage example.
+- Fixed installation instructions for better clarity.
+
 ## [1.1.0] - 2026-02-07
 
 ### 🚀 Features
