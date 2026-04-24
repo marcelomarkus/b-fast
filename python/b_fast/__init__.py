@@ -4,7 +4,7 @@ B-FAST: Binary Fast Adaptive Serialization Transfer
 Ultra-fast binary serialization library with Rust backend.
 """
 
-from .b_fast import BFast
+from ._b_fast import BFast
 from .integration import BFastResponse
 
 __version__ = "1.2.0"
