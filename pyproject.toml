@@ -76,4 +76,4 @@ known-first-party = ["b_fast"]
 
 [tool.maturin]
 python-source = "python"
-module-name = "b_fast.b_fast"
+module-name = "b_fast._b_fast"
