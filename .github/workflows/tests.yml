@@ -40,10 +40,15 @@ jobs:
       run: pip install pytest pydantic numpy
     
     - name: Run Python tests
-      run: pytest tests/ -v --tb=short
+      run: |
+        # Clear PYTHONPATH to ensure we test the installed wheel, not the local source
+        export PYTHONPATH=
+        pytest tests/ -v --tb=short
     
     - name: Run benchmarks (smoke test)
-      run: python benchmarks/test_10k.py
+      run: |
+        export PYTHONPATH=
+        python benchmarks/test_10k.py
 
   test-typescript:
     name: TypeScript Tests

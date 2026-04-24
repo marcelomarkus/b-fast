@@ -27,7 +27,6 @@ const TAG_UUID: u8 = 0xD4;
 const TAG_DECIMAL: u8 = 0xD5;
 
 #[allow(non_local_definitions)]
-#[repr(align(64))]
 #[pyclass]
 pub struct BFast {
     string_table: AHashMap<String, u32>,
@@ -796,7 +795,7 @@ impl BFast {
 }
 
 #[pymodule]
-fn b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<BFast>()?;
     m.add(
         "BFastError",
