@@ -32,6 +32,19 @@ class BFast:
         """
         ...
 
+    def decode_packed(self, bytes: bytes, *, decompress: bool = True) -> Any:
+        """
+        Decode B-FAST binary data to Python objects.
+
+        Args:
+            bytes: bytes or bytearray containing B-FAST data (optionally compressed)
+            decompress: Decompress B-FAST data if compressed, otherwise parse directly
+
+        Returns:
+            Decoded Python object
+        """
+        ...
+
     def encode_secure(self, data: Any, key: bytes, *, compress: bool = False) -> bytes:
         """
         Encode and encrypt data using ChaCha20-Poly1305.

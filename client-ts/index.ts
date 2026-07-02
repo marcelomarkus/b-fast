@@ -232,6 +232,26 @@ class BFastParser {
     }
 }
 
+function decompressBlockLz4(compressedData: Uint8Array): Uint8Array {
+    if (compressedData.length < 4) {
+        throw new BFastError('Compressed block too small');
+    }
+    const view = new DataView(compressedData.buffer, compressedData.byteOffset, compressedData.byteLength);
+    const uncompressedSize = view.getUint32(0, true);
+    const dst = new Uint8Array(uncompressedSize);
+    const decompressedSize = lz4.decompressBlock(
+        compressedData,
+        dst,
+        4,
+        compressedData.length - 4,
+        0
+    );
+    if (decompressedSize !== uncompressedSize) {
+        throw new BFastError(`LZ4 decompression size mismatch: expected ${uncompressedSize}, got ${decompressedSize}`);
+    }
+    return dst;
+}
+
 export class BFastDecoder {
     /**
      * Decode B-FAST binary data to JavaScript objects
@@ -244,9 +264,45 @@ export class BFastDecoder {
         // Auto-detect LZ4 compression (if doesn't start with 'BF' magic)
         if (data.length >= 2 && (data[0] !== 0x42 || data[1] !== 0x46)) {
             try {
-                data = lz4.decompress(data);
+                // Try single-chunk decompression first
+                data = decompressBlockLz4(data);
             } catch (error) {
-                throw new BFastError(`LZ4 decompression failed: ${error}`);
+                // Fall back to parallel chunk decompression
+                try {
+                    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                    const uncompressedSize = view.getUint32(0, true);
+                    const chunksCount = view.getUint32(4, true);
+
+                    let offset = 8;
+                    const decompressedChunks: Uint8Array[] = [];
+                    for (let i = 0; i < chunksCount; i++) {
+                        if (offset + 4 > data.length) {
+                            throw new BFastError('Unexpected end of data in parallel compression chunk headers');
+                        }
+                        const chunkLen = view.getUint32(offset, true);
+                        offset += 4;
+                        if (offset + chunkLen > data.length) {
+                            throw new BFastError('Unexpected end of data in parallel compression chunk data');
+                        }
+                        const chunkData = new Uint8Array(
+                            data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + chunkLen)
+                        );
+                        offset += chunkLen;
+
+                        decompressedChunks.push(decompressBlockLz4(chunkData));
+                    }
+
+                    // Concatenate chunks
+                    const result = new Uint8Array(uncompressedSize);
+                    let writeOffset = 0;
+                    for (const chunk of decompressedChunks) {
+                        result.set(chunk, writeOffset);
+                        writeOffset += chunk.length;
+                    }
+                    data = result;
+                } catch (parallelError) {
+                    throw new BFastError(`LZ4 decompression failed (single: ${error}, parallel: ${parallelError})`);
+                }
             }
         }
 

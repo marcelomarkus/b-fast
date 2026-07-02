@@ -6,11 +6,11 @@ use numpy::PyReadonlyArrayDyn;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict, PyFrozenSet, PyList, PySet, PyString, PyTuple};
 use rayon::prelude::*;
+use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::mem;
 use std::ptr;
 
-mod allocator;
 mod errors;
 
 // Performance tuning constants
@@ -119,6 +119,86 @@ impl BFast {
         };
 
         Ok(PyBytes::new(obj.py(), &final_data).into())
+    }
+
+    #[pyo3(signature = (bytes, *, decompress = true))]
+    pub fn decode_packed(&self, py: Python, bytes: &[u8], decompress: bool) -> PyResult<PyObject> {
+        let decompressed_data = if decompress {
+            decompress_packed(bytes)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?
+        } else {
+            Cow::Borrowed(bytes)
+        };
+
+        if decompressed_data.len() < 6 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Decompressed buffer too small for B-FAST header",
+            ));
+        }
+
+        let magic = &decompressed_data[0..2];
+        if magic != b"BF" {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Invalid B-FAST magic number",
+            ));
+        }
+
+        let string_table_count =
+            u16::from_le_bytes(decompressed_data[4..6].try_into().unwrap()) as usize;
+
+        let mut offset = 6;
+        let mut string_table = Vec::with_capacity(string_table_count);
+        for _ in 0..string_table_count {
+            if offset >= decompressed_data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Unexpected end of buffer in string table",
+                ));
+            }
+            let length = decompressed_data[offset] as usize;
+            offset += 1;
+            if offset + length > decompressed_data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "String extends beyond buffer in string table",
+                ));
+            }
+            let string_bytes = &decompressed_data[offset..offset + length];
+            let string_val = std::str::from_utf8(string_bytes)
+                .map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "Invalid UTF-8 in string table: {}",
+                        e
+                    ))
+                })?
+                .to_string();
+            string_table.push(string_val);
+            offset += length;
+        }
+
+        let datetime_module = py.import("datetime")?;
+        let datetime_class = datetime_module.getattr("datetime")?;
+        let date_class = datetime_module.getattr("date")?;
+        let time_class = datetime_module.getattr("time")?;
+
+        let uuid_module = py.import("uuid")?;
+        let uuid_class = uuid_module.getattr("UUID")?;
+
+        let decimal_module = py.import("decimal")?;
+        let decimal_class = decimal_module.getattr("Decimal")?;
+
+        let mut parser = BFastParser {
+            py,
+            data: &decompressed_data,
+            offset,
+            string_table: &string_table,
+            datetime_class,
+            date_class,
+            time_class,
+            uuid_class,
+            decimal_class,
+            recursion_depth: 0,
+        };
+
+        parser.parse()
     }
 }
 
@@ -802,4 +882,351 @@ fn _b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
         _py.get_type::<pyo3::exceptions::PyValueError>(),
     )?;
     Ok(())
+}
+
+fn decompress_packed(data: &[u8]) -> Result<Cow<'_, [u8]>, String> {
+    if data.len() < 2 {
+        return Err("Buffer too small for B-FAST payload".to_string());
+    }
+    if &data[0..2] == b"BF" {
+        return Ok(Cow::Borrowed(data));
+    }
+    if data.len() < 8 {
+        return Err("Buffer too small for compressed B-FAST data".to_string());
+    }
+
+    // Try single-chunk decompression first
+    if let Ok(decompressed) = lz4_flex::decompress_size_prepended(data) {
+        return Ok(Cow::Owned(decompressed));
+    }
+
+    // Fall back to parallel chunk decompression
+    let uncompressed_size = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
+    let chunks_count = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
+
+    let max_possible_chunks = (data.len() - 8) / 4;
+    if chunks_count > max_possible_chunks {
+        return Err("Invalid chunks count in parallel compression header".to_string());
+    }
+
+    let mut offset = 8;
+    let mut chunk_slices = Vec::with_capacity(chunks_count);
+
+    for _ in 0..chunks_count {
+        if offset + 4 > data.len() {
+            return Err("Unexpected end of data in parallel compression chunk headers".to_string());
+        }
+        let chunk_len = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
+        offset += 4;
+        if offset + chunk_len > data.len() {
+            return Err("Unexpected end of data in parallel compression chunk data".to_string());
+        }
+        chunk_slices.push(&data[offset..offset + chunk_len]);
+        offset += chunk_len;
+    }
+
+    let decompressed_chunks: Result<Vec<Vec<u8>>, _> = chunk_slices
+        .into_par_iter()
+        .map(|chunk_data| lz4_flex::decompress_size_prepended(chunk_data))
+        .collect();
+
+    let decompressed_chunks =
+        decompressed_chunks.map_err(|e| format!("LZ4 chunk decompression failed: {}", e))?;
+    let result = decompressed_chunks.concat();
+    if result.len() != uncompressed_size {
+        return Err(format!(
+            "Decompressed size mismatch: expected {}, got {}",
+            uncompressed_size,
+            result.len()
+        ));
+    }
+    Ok(Cow::Owned(result))
+}
+
+struct BFastParser<'a, 'py> {
+    py: Python<'py>,
+    data: &'a [u8],
+    offset: usize,
+    string_table: &'a [String],
+    datetime_class: &'py PyAny,
+    date_class: &'py PyAny,
+    time_class: &'py PyAny,
+    uuid_class: &'py PyAny,
+    decimal_class: &'py PyAny,
+    recursion_depth: usize,
+}
+
+impl<'a, 'py> BFastParser<'a, 'py> {
+    fn check_bounds(&self, size: usize) -> PyResult<()> {
+        if self.offset + size > self.data.len() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Unexpected end of buffer during parsing",
+            ));
+        }
+        Ok(())
+    }
+
+    fn parse(&mut self) -> PyResult<PyObject> {
+        self.recursion_depth += 1;
+        if self.recursion_depth > MAX_RECURSION_DEPTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyRecursionError, _>(
+                "Maximum recursion depth exceeded during B-FAST decoding",
+            ));
+        }
+
+        self.check_bounds(1)?;
+        let tag = self.data[self.offset];
+        self.offset += 1;
+
+        let result = self.parse_tag(tag);
+
+        self.recursion_depth -= 1;
+        result
+    }
+
+    fn parse_tag(&mut self, tag: u8) -> PyResult<PyObject> {
+        // Null
+        if tag == 0x10 {
+            return Ok(self.py.None());
+        }
+
+        // Booleans
+        if tag == 0x20 {
+            return Ok(false.into_py(self.py));
+        }
+        if tag == 0x21 {
+            return Ok(true.into_py(self.py));
+        }
+
+        // Int64
+        if tag == 0x38 {
+            self.check_bounds(8)?;
+            let val =
+                i64::from_le_bytes(self.data[self.offset..self.offset + 8].try_into().unwrap());
+            self.offset += 8;
+            return Ok(val.into_py(self.py));
+        }
+
+        // Small integers (bit-packed)
+        if (tag & 0xF0) == 0x30 {
+            let val = (tag & 0x0F) as i64;
+            return Ok(val.into_py(self.py));
+        }
+
+        // Float64
+        if tag == 0x40 {
+            self.check_bounds(8)?;
+            let val =
+                f64::from_le_bytes(self.data[self.offset..self.offset + 8].try_into().unwrap());
+            self.offset += 8;
+            return Ok(val.into_py(self.py));
+        }
+
+        // Raw string
+        if tag == 0x50 {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let str_bytes = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            let val = std::str::from_utf8(str_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in string: {}",
+                    e
+                ))
+            })?;
+            return Ok(PyString::new(self.py, val).into());
+        }
+
+        // List/Array
+        if tag == 0x60 {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+
+            let max_elements = self.data.len() - self.offset;
+            let mut list = Vec::with_capacity(length.min(max_elements));
+            for _ in 0..length {
+                list.push(self.parse()?);
+            }
+            return Ok(PyList::new(self.py, list).into());
+        }
+
+        // Object start
+        if tag == 0x70 {
+            let dict = PyDict::new(self.py);
+            while self.offset < self.data.len() && self.data[self.offset] != 0x7F {
+                self.check_bounds(4)?;
+                let key_id =
+                    u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                        as usize;
+                self.offset += 4;
+
+                if key_id >= self.string_table.len() {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "Invalid string table index: {}",
+                        key_id
+                    )));
+                }
+
+                let key = &self.string_table[key_id];
+                let value = self.parse()?;
+                dict.set_item(key, value)?;
+            }
+
+            if self.offset >= self.data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Object not properly terminated",
+                ));
+            }
+
+            self.offset += 1; // Skip 0x7F
+            return Ok(dict.into());
+        }
+
+        // Bytes
+        if tag == 0x80 {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let bytes_val = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            return Ok(PyBytes::new(self.py, bytes_val).into());
+        }
+
+        // NumPy Array (f64)
+        if tag == 0x90 {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length * 8)?;
+
+            // Decode to a python list of floats
+            let mut list = Vec::with_capacity(length);
+            for _ in 0..length {
+                let val =
+                    f64::from_le_bytes(self.data[self.offset..self.offset + 8].try_into().unwrap());
+                list.push(val.into_py(self.py));
+                self.offset += 8;
+            }
+            return Ok(PyList::new(self.py, list).into());
+        }
+
+        // DateTime (0xD1) - ISO 8601 string
+        if tag == TAG_DATETIME {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let str_bytes = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            let iso_str = std::str::from_utf8(str_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in datetime string: {}",
+                    e
+                ))
+            })?;
+            let obj = self
+                .datetime_class
+                .call_method1("fromisoformat", (iso_str,))?;
+            return Ok(obj.into());
+        }
+
+        // Date (0xD2) - ISO 8601 date string
+        if tag == TAG_DATE {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let str_bytes = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            let iso_str = std::str::from_utf8(str_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in date string: {}",
+                    e
+                ))
+            })?;
+            let obj = self.date_class.call_method1("fromisoformat", (iso_str,))?;
+            return Ok(obj.into());
+        }
+
+        // Time (0xD3) - ISO 8601 time string
+        if tag == TAG_TIME {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let str_bytes = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            let iso_str = std::str::from_utf8(str_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in time string: {}",
+                    e
+                ))
+            })?;
+            let obj = self.time_class.call_method1("fromisoformat", (iso_str,))?;
+            return Ok(obj.into());
+        }
+
+        // UUID (0xD4)
+        if tag == TAG_UUID {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let str_bytes = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            let hex_str = std::str::from_utf8(str_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in UUID string: {}",
+                    e
+                ))
+            })?;
+            let obj = self.uuid_class.call1((hex_str,))?;
+            return Ok(obj.into());
+        }
+
+        // Decimal (0xD5)
+        if tag == TAG_DECIMAL {
+            self.check_bounds(4)?;
+            let length =
+                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
+                    as usize;
+            self.offset += 4;
+            self.check_bounds(length)?;
+            let str_bytes = &self.data[self.offset..self.offset + length];
+            self.offset += length;
+            let dec_str = std::str::from_utf8(str_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in Decimal string: {}",
+                    e
+                ))
+            })?;
+            let obj = self.decimal_class.call1((dec_str,))?;
+            return Ok(obj.into());
+        }
+
+        Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Unknown tag: 0x{:02x}",
+            tag
+        )))
+    }
 }

@@ -44,6 +44,12 @@ def test_type_preservation():
     with open("/tmp/bfast_typed_test.bin", "wb") as f:
         f.write(encoded)
 
+    # Create and save a large parallel-compressed payload for testing parallel decompression in TS
+    large_list = [model] * 12000
+    encoded_large = encoder.encode_packed(large_list, compress=True)
+    with open("/tmp/bfast_large_test.bin", "wb") as f:
+        f.write(encoded_large)
+
     # Save expected values as JSON for comparison
     expected = {
         "name": model.name,
