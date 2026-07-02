@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-07-02
+
+### 🚀 Features
+- **Rust-powered Decoder**: Ported B-FAST decoding logic to Rust (`decode_packed`), replacing the pure-Python implementation and achieving ultra-fast parsing of binary payloads.
+- **Parallel LZ4 Decompression**: Rayon-powered multi-threaded LZ4 block decompression for large chunk-compressed payloads.
+
+### 🔧 Fixes
+- **Rayon Thread Safety**: Reverted the custom global `PyMemAllocator` to Rust's thread-safe system allocator to prevent segmentation faults during parallel compression/decompression.
+- **Input Validation**: Added recursion limits and buffer size checks to the Rust parser to prevent stack overflows and out-of-memory errors on malformed payloads.
+
 ## [1.2.1] - 2026-04-24
 
 ### 🚀 Features

@@ -26,6 +26,12 @@ try {
     console.log(`  balance: ${obj.balance} (${typeof obj.balance}) ${obj.balance === parseFloat(expected.balance) ? '✅' : '❌'}`);
     console.log(`  active: ${obj.active} (${typeof obj.active}) ${obj.active === expected.active ? '✅' : '❌'}`);
     
+    // Decode large parallel-compressed payload
+    console.log('\n🧪 Testing B-FAST Parallel Decompression (Large Payload)\n');
+    const largeBinaryData = fs.readFileSync('/tmp/bfast_large_test.bin');
+    const decodedLarge = BFastDecoder.decode(largeBinaryData);
+    console.log(`  Decoded large array length: ${decodedLarge.length} (expected: 12000) ${decodedLarge.length === 12000 ? '✅' : '❌'}`);
+    
     // Check all passed
     const allPassed = 
         obj.name === expected.name &&
@@ -35,7 +41,8 @@ try {
         obj.wake_time === expected.wake_time &&
         obj.user_id === expected.user_id &&
         obj.balance === parseFloat(expected.balance) &&
-        obj.active === expected.active;
+        obj.active === expected.active &&
+        decodedLarge.length === 12000;
     
     console.log('\n' + '='.repeat(60));
     if (allPassed) {
