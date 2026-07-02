@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 - **Rust-powered Decoder**: Ported B-FAST decoding logic to Rust (`decode_packed`), replacing the pure-Python implementation and achieving ultra-fast parsing of binary payloads.
-- **Parallel LZ4 Decompression**: Rayon-powered multi-threaded LZ4 block decompression for large chunk-compressed payloads.
+- **Parallel Decompression**: Rayon-powered multi-threaded block decompression for large chunk-compressed payloads.
 
 ### 🔧 Fixes
 - **Rayon Thread Safety**: Reverted the custom global `PyMemAllocator` to Rust's thread-safe system allocator to prevent segmentation faults during parallel compression/decompression.
