@@ -6,6 +6,8 @@ on:
   pull_request_review:
     types: [submitted]
 
+permissions: {}
+
 jobs:
   label-by-branch:
     name: Label by Branch Name
@@ -17,7 +19,7 @@ jobs:
     steps:
     - name: Add feat label
       if: startsWith(github.head_ref, 'feat/')
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
       with:
         script: |
           github.rest.issues.addLabels({
@@ -29,7 +31,7 @@ jobs:
     
     - name: Add fix label
       if: startsWith(github.head_ref, 'fix/')
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
       with:
         script: |
           github.rest.issues.addLabels({
@@ -41,7 +43,7 @@ jobs:
     
     - name: Add docs label
       if: startsWith(github.head_ref, 'docs/')
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
       with:
         script: |
           github.rest.issues.addLabels({
@@ -60,7 +62,7 @@ jobs:
     
     steps:
     - name: Count approvals and add label
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
       with:
         script: |
           const { data: reviews } = await github.rest.pulls.listReviews({
