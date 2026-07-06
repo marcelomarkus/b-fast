@@ -1,11 +1,11 @@
 name: Zizmor
 
 on:
-  push:
+  push: {}
   pull_request:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions: {}
 
@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      security-events: write  # Required for upload-sarif (used by zizmor-action)
-      contents: read          # Required for checkout
+      # Required for upload-sarif (used by zizmor-action)
+      security-events: write
+      # Required for checkout
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
