@@ -8,6 +8,7 @@ on:
       - 'docs/**'
       - 'zensical.toml'
       - 'README.md'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
