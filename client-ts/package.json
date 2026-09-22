@@ -1,6 +1,6 @@
 {
   "name": "bfast-client",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Client for ⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Protocolo de serialização binária de ultra-alta performance",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
-    "test": "npm run build && node --test dist/tests/streaming.test.js dist/tests/type-preservation.test.js"
+    "test": "npm run build && node --test dist/tests/streaming.test.js dist/tests/type-preservation.test.js",
+    "sync-version": "node -e \"const v = require('fs').readFileSync('../Cargo.toml','utf8').match(/^version = \\\"(.*)\\\"/m)[1]; const pkg = require('./package.json'); pkg.version = v; require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\\n');\""
   },
   "keywords": [
     "binary",

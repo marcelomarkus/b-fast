@@ -903,6 +903,7 @@ impl BFast {
 
 #[pymodule]
 fn _b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<BFast>()?;
     m.add_class::<streaming::BFastStreamDecoder>()?;
     m.add_class::<streaming::BFastStreamEncoder>()?;

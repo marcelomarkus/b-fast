@@ -14,8 +14,17 @@ from .mcp import (
 )
 from .streaming import BFastStreamDecoder, BFastStreamEncoder
 
-__version__ = "1.4.0"
+try:
+    from ._b_fast import __version__
+except (ImportError, AttributeError):
+    try:
+        from importlib.metadata import version as _version
+        __version__ = _version("bfast-py")
+    except Exception:
+        __version__ = "unknown"
+
 __all__ = [
+    "__version__",
     "BFast",
     "BFastError",
     "BFastResponse",

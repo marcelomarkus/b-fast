@@ -104,6 +104,11 @@ def test_encoder_reuse():
     assert len(result1) > 0
     assert len(result2) > 0
 
+def test_version():
+    """Test that b_fast exports a valid version string matching Cargo.toml."""
+    assert isinstance(b_fast.__version__, str)
+    assert b_fast.__version__ == "1.5.0"
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
