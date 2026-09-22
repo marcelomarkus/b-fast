@@ -35,26 +35,13 @@ compressed_data = encoder.encode_packed(data, compress=True)
 
 ### FastAPI Integration ⭐ Recommended
 
-#### Custom Response
-```python
-from fastapi import Response
-import b_fast
+B-FAST provides built-in `Response` and `StreamingResponse` classes for FastAPI and Starlette.
 
-class BFastResponse(Response):
-    media_type = "application/x-bfast"
-    
-    def __init__(self, content=None, *args, **kwargs):
-        super().__init__(content, *args, **kwargs)
-        self.encoder = b_fast.BFast()
-
-    def render(self, content) -> bytes:
-        return self.encoder.encode_packed(content, compress=True)
-```
-
-#### Route Application
+#### Standard Response
 ```python
 from fastapi import FastAPI
 from pydantic import BaseModel
+from b_fast import BFastResponse
 
 app = FastAPI()
 
@@ -68,8 +55,46 @@ async def get_users():
     return [User(id=i, name=f"User {i}", email=f"user{i}@example.com") for i in range(1000)]
 ```
 
+#### Streamable HTTP Response (Continuous Streaming) 🌊
+Stream binary frames in real-time over HTTP/1.1 (Chunked), HTTP/2, or HTTP/3:
+
+```python
+import asyncio
+from fastapi import FastAPI
+from b_fast import BFastStreamingResponse
+
+app = FastAPI()
+
+@app.get("/stream-users", response_class=BFastStreamingResponse)
+async def stream_users():
+    async def user_generator():
+        for i in range(100):
+            yield {"id": i, "name": f"User {i}", "status": "active"}
+            await asyncio.sleep(0.05)
+    
+    return user_generator()
+```
+
+---
+
+### Model Context Protocol (MCP) Integration 🤖
+Transmit large masses of AI tool output using B-FAST Streamable HTTP:
+
+```python
+from b_fast import (
+    is_bfast_stream_requested,
+    stream_mcp_async_tool_results,
+    wrap_mcp_tool_output,
+)
+
+# Check content negotiation
+if is_bfast_stream_requested(request.headers):
+    # Stream generator output in binary
+    return stream_mcp_async_tool_results(tool_data_generator())
+```
+
 ## Next Steps
 
-- [Frontend Integration](frontend.md) - TypeScript client setup
+- [Frontend Integration](frontend.md) - TypeScript client setup & streaming
 - [Performance](performance.md) - Detailed benchmarks
 - [Troubleshooting](troubleshooting.md) - Common issues
