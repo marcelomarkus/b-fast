@@ -215,27 +215,16 @@ impl BFast {
             offset += length;
         }
 
-        let datetime_module = py.import("datetime")?;
-        let datetime_class = datetime_module.getattr("datetime")?;
-        let date_class = datetime_module.getattr("date")?;
-        let time_class = datetime_module.getattr("time")?;
-
-        let uuid_module = py.import("uuid")?;
-        let uuid_class = uuid_module.getattr("UUID")?;
-
-        let decimal_module = py.import("decimal")?;
-        let decimal_class = decimal_module.getattr("Decimal")?;
-
         let mut parser = BFastParser {
             py,
             data: &decompressed_data,
             offset,
             string_table: &string_table,
-            datetime_class,
-            date_class,
-            time_class,
-            uuid_class,
-            decimal_class,
+            datetime_class: None,
+            date_class: None,
+            time_class: None,
+            uuid_class: None,
+            decimal_class: None,
             recursion_depth: 0,
         };
 
@@ -988,15 +977,65 @@ struct BFastParser<'a, 'py> {
     data: &'a [u8],
     offset: usize,
     string_table: &'a [&'py PyString],
-    datetime_class: &'py PyAny,
-    date_class: &'py PyAny,
-    time_class: &'py PyAny,
-    uuid_class: &'py PyAny,
-    decimal_class: &'py PyAny,
+    datetime_class: Option<&'py PyAny>,
+    date_class: Option<&'py PyAny>,
+    time_class: Option<&'py PyAny>,
+    uuid_class: Option<&'py PyAny>,
+    decimal_class: Option<&'py PyAny>,
     recursion_depth: usize,
 }
 
 impl<'a, 'py> BFastParser<'a, 'py> {
+    fn get_datetime_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.datetime_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("datetime")?.getattr("datetime")?;
+            self.datetime_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_date_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.date_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("datetime")?.getattr("date")?;
+            self.date_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_time_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.time_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("datetime")?.getattr("time")?;
+            self.time_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_uuid_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.uuid_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("uuid")?.getattr("UUID")?;
+            self.uuid_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_decimal_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.decimal_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("decimal")?.getattr("Decimal")?;
+            self.decimal_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
     fn check_bounds(&self, size: usize) -> PyResult<()> {
         if self.offset + size > self.data.len() {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -1179,7 +1218,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self
-                .datetime_class
+                .get_datetime_class()?
                 .call_method1("fromisoformat", (iso_str,))?;
             return Ok(obj.into());
         }
@@ -1200,7 +1239,9 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.date_class.call_method1("fromisoformat", (iso_str,))?;
+            let obj = self
+                .get_date_class()?
+                .call_method1("fromisoformat", (iso_str,))?;
             return Ok(obj.into());
         }
 
@@ -1220,7 +1261,9 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.time_class.call_method1("fromisoformat", (iso_str,))?;
+            let obj = self
+                .get_time_class()?
+                .call_method1("fromisoformat", (iso_str,))?;
             return Ok(obj.into());
         }
 
@@ -1240,7 +1283,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.uuid_class.call1((hex_str,))?;
+            let obj = self.get_uuid_class()?.call1((hex_str,))?;
             return Ok(obj.into());
         }
 
@@ -1260,7 +1303,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.decimal_class.call1((dec_str,))?;
+            let obj = self.get_decimal_class()?.call1((dec_str,))?;
             return Ok(obj.into());
         }
 
