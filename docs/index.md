@@ -11,6 +11,8 @@ B-FAST was born from the recognition that modern applications need more than jus
 ## 🚀 Why B-FAST?
 
 - **Rust Engine:** Native serialization without Python interpreter overhead
+- **Streamable HTTP:** Continuous binary streaming (`application/x-bfast-stream`) with length-prefixed framing and zero-copy transfer
+- **Model Context Protocol (MCP):** Native Streamable HTTP transport for AI agent tool output
 - **Pydantic Native:** Reads Pydantic model attributes directly from memory, skipping the slow .model_dump() process
 - **Zero-Copy NumPy:** Serializes tensors and numeric arrays directly, achieving 14-96x speedup vs JSON/orjson
 - **Parallel Compression:** LZ4 with multi-thread processing for large payloads (>1MB)
