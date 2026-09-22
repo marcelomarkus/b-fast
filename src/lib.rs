@@ -453,9 +453,8 @@ impl BFast {
             return Ok(());
         }
 
-        // Fallback
-        self.work_buffer.push(0x10);
-        Ok(())
+        // Fallback: handle lists, dicts, and complex types properly
+        self.serialize_any_optimized(val)
     }
 
     #[inline(always)]
@@ -601,24 +600,6 @@ impl BFast {
             }
         }
 
-        // Enum handling
-        if val.hasattr("__class__")? {
-            if let Ok(class) = val.getattr("__class__") {
-                if let Ok(bases) = class.getattr("__bases__") {
-                    if let Ok(bases_tuple) = bases.downcast::<PyTuple>() {
-                        for base in bases_tuple.iter() {
-                            if let Ok(base_name) = base.getattr("__name__")?.extract::<String>() {
-                                if base_name == "Enum" || base_name == "IntEnum" {
-                                    let enum_value = val.getattr("value")?;
-                                    return self.serialize_value_ultra_fast(enum_value);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         self.serialize_any_optimized(val)
     }
 
@@ -693,95 +674,67 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(b) = val.extract::<bool>() {
+        // 1. PyBool MUST come before PyLong because bool is a subclass of int in Python
+        if val.is_instance_of::<pyo3::types::PyBool>() {
+            let b = val.extract::<bool>()?;
             self.work_buffer.push(if b { 0x21 } else { 0x20 });
             return Ok(());
         }
 
-        // Check special types BEFORE basic types (Decimal can be extracted as f64)
-        // Decimal
-        if let Ok(type_name) = val.get_type().name() {
-            if type_name == "Decimal" {
-                let dec_str = val.str()?.extract::<String>()?;
-                self.work_buffer.push(TAG_DECIMAL);
-                let bytes = dec_str.as_bytes();
-                self.work_buffer
-                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                self.work_buffer.extend_from_slice(bytes);
+        // 2. PyLong (int)
+        if val.is_instance_of::<pyo3::types::PyLong>() {
+            if let Ok(n) = val.extract::<i64>() {
+                if (0..=7).contains(&n) {
+                    self.work_buffer.push(0x30 | (n as u8));
+                } else {
+                    self.work_buffer.push(0x38);
+                    self.work_buffer.extend_from_slice(&n.to_le_bytes());
+                }
                 return Ok(());
             }
         }
 
-        // datetime, date, time (ISO 8601) with type preservation
-        if val.hasattr("isoformat")? {
-            let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
-            let type_name = val.get_type().name()?;
-
-            let tag = match type_name {
-                "datetime" => TAG_DATETIME,
-                "date" => TAG_DATE,
-                "time" => TAG_TIME,
-                _ => 0x50,
-            };
-
-            self.work_buffer.push(tag);
-            let bytes = iso_str.as_bytes();
-            self.work_buffer
-                .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-            self.work_buffer.extend_from_slice(bytes);
-            return Ok(());
-        }
-
-        // UUID
-        if val.hasattr("hex")? {
-            if let Ok(type_name) = val.get_type().name() {
-                if type_name == "UUID" {
-                    let hex_str = val.getattr("hex")?.extract::<String>()?;
-                    self.work_buffer.push(TAG_UUID);
-                    let bytes = hex_str.as_bytes();
-                    self.work_buffer
-                        .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                    self.work_buffer.extend_from_slice(bytes);
-                    return Ok(());
-                }
-            }
-        }
-
-        if let Ok(n) = val.extract::<i64>() {
-            if (0..=7).contains(&n) {
-                self.work_buffer.push(0x30 | (n as u8));
-            } else {
-                self.work_buffer.push(0x38);
-                self.work_buffer.extend_from_slice(&n.to_le_bytes());
-            }
-            return Ok(());
-        }
-
-        if let Ok(f) = val.extract::<f64>() {
+        // 3. PyFloat (float)
+        if val.is_instance_of::<pyo3::types::PyFloat>() {
+            let f = val.extract::<f64>()?;
             self.work_buffer.push(0x40);
             self.work_buffer.extend_from_slice(&f.to_le_bytes());
             return Ok(());
         }
 
+        // 4. PyString (str)
         if let Ok(py_str) = val.downcast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
+            self.ensure_buffer_capacity(4 + bytes.len());
             self.work_buffer
                 .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             self.work_buffer.extend_from_slice(bytes);
             return Ok(());
         }
 
-        // bytes / bytearray (check before collections)
-        if let Ok(py_bytes) = val.extract::<&[u8]>() {
-            self.work_buffer.push(0x80);
-            self.work_buffer
-                .extend_from_slice(&(py_bytes.len() as u32).to_le_bytes());
-            self.work_buffer.extend_from_slice(py_bytes);
+        // 5. PyDict (dict)
+        if let Ok(dict) = val.downcast::<PyDict>() {
+            self.work_buffer.push(0x70);
+
+            for (k, v) in dict.iter() {
+                let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
+                    py_str.to_str()?
+                } else {
+                    &k.to_string()
+                };
+
+                let id = self.get_or_create_string_id_fast(key_str);
+                self.work_buffer.extend_from_slice(&id.to_le_bytes());
+                self.serialize_any_optimized(v)?;
+            }
+
+            self.work_buffer.push(0x7F);
             return Ok(());
         }
 
+        // 6. PyList (list)
         if let Ok(list) = val.downcast::<PyList>() {
             self.work_buffer.push(0x60);
             let len = list.len();
@@ -794,7 +747,7 @@ impl BFast {
             return Ok(());
         }
 
-        // tuple (serialize as list)
+        // 7. PyTuple (serialize as list)
         if let Ok(tuple) = val.downcast::<PyTuple>() {
             self.work_buffer.push(0x60);
             let len = tuple.len();
@@ -807,7 +760,7 @@ impl BFast {
             return Ok(());
         }
 
-        // set / frozenset (serialize as list)
+        // 8. PySet / PyFrozenSet (serialize as list)
         if let Ok(set) = val.downcast::<PySet>() {
             self.work_buffer.push(0x60);
             let len = set.len();
@@ -832,6 +785,16 @@ impl BFast {
             return Ok(());
         }
 
+        // 9. PyBytes / bytearray
+        if let Ok(py_bytes) = val.extract::<&[u8]>() {
+            self.work_buffer.push(0x80);
+            self.work_buffer
+                .extend_from_slice(&(py_bytes.len() as u32).to_le_bytes());
+            self.work_buffer.extend_from_slice(py_bytes);
+            return Ok(());
+        }
+
+        // 10. NumPy array
         if let Ok(array) = val.extract::<PyReadonlyArrayDyn<f64>>() {
             self.work_buffer.push(0x90);
             let raw_data = array.as_slice()?;
@@ -845,43 +808,66 @@ impl BFast {
             return Ok(());
         }
 
-        // Check for dict or __dict__ (Pydantic models)
-        if let Ok(dict) = val.downcast::<PyDict>() {
-            self.work_buffer.push(0x70);
-
-            for (k, v) in dict.iter() {
-                let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
-                    py_str.to_str()?
-                } else {
-                    &k.to_string()
-                };
-
-                let id = self.get_or_create_string_id_fast(key_str);
-                self.work_buffer.extend_from_slice(&id.to_le_bytes());
-                self.serialize_any_optimized(v)?;
+        // 11. Decimal
+        if let Ok(type_name) = val.get_type().name() {
+            if type_name == "Decimal" {
+                let dec_str = val.str()?.extract::<String>()?;
+                self.work_buffer.push(TAG_DECIMAL);
+                let bytes = dec_str.as_bytes();
+                self.work_buffer
+                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                self.work_buffer.extend_from_slice(bytes);
+                return Ok(());
             }
+        }
 
-            self.work_buffer.push(0x7F);
+        // 12. datetime, date, time (ISO 8601) with type preservation
+        if val.hasattr("isoformat")? {
+            let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
+            let type_name = val.get_type().name()?;
+
+            let tag = match type_name {
+                "datetime" => TAG_DATETIME,
+                "date" => TAG_DATE,
+                "time" => TAG_TIME,
+                _ => 0x50,
+            };
+
+            self.work_buffer.push(tag);
+            let bytes = iso_str.as_bytes();
+            self.work_buffer
+                .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            self.work_buffer.extend_from_slice(bytes);
             return Ok(());
         }
 
-        // Enum (extract value) - check BEFORE __dict__
-        if val.hasattr("value")? && val.hasattr("name")? {
-            // Check if it's actually an Enum by checking the type name
-            if let Ok(_type_name) = val.get_type().name() {
-                // Python Enum types have names like "Priority", "Status", etc.
-                // Check if it has __class__.__bases__ that includes Enum
-                if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
-                    let bases_str = bases.str()?.extract::<String>()?;
-                    if bases_str.contains("Enum") {
-                        let enum_value = val.getattr("value")?;
-                        return self.serialize_any_optimized(enum_value);
-                    }
+        // 13. UUID
+        if val.hasattr("hex")? {
+            if let Ok(type_name) = val.get_type().name() {
+                if type_name == "UUID" {
+                    let hex_str = val.getattr("hex")?.extract::<String>()?;
+                    self.work_buffer.push(TAG_UUID);
+                    let bytes = hex_str.as_bytes();
+                    self.work_buffer
+                        .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    self.work_buffer.extend_from_slice(bytes);
+                    return Ok(());
                 }
             }
         }
 
-        // Try __dict__ for Pydantic models
+        // 14. Enum (extract value) - check BEFORE __dict__
+        if val.hasattr("value")? && val.hasattr("name")? {
+            if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
+                let bases_str = bases.str()?.extract::<String>()?;
+                if bases_str.contains("Enum") {
+                    let enum_value = val.getattr("value")?;
+                    return self.serialize_any_optimized(enum_value);
+                }
+            }
+        }
+
+        // 15. Try __dict__ for Pydantic models
         if let Ok(dict_attr) = val.getattr("__dict__") {
             if let Ok(dict) = dict_attr.downcast::<PyDict>() {
                 self.work_buffer.push(0x70);
