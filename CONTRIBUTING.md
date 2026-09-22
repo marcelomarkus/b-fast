@@ -147,6 +147,24 @@ B-FAST is built on the principle of open knowledge sharing. Every contribution, 
 - Performance changes need benchmark comparisons
 - Breaking changes require migration guides
 
+### Continuous Benchmarking (CodSpeed)
+
+The `benchmarks/bench_*.py` files form the CodSpeed suite, which runs on every
+push to `main` and on every pull request:
+
+- `bench_codspeed.py` - core encode/decode of Pydantic models, dicts and primitives
+- `bench_streaming.py` - length-prefixed frame encoding and stream decoding
+- `bench_types.py` - NumPy payloads and extended types (datetime, UUID, Decimal, ...)
+
+Run them locally with:
+
+```bash
+uv sync --group dev
+uv run pytest benchmarks/bench_codspeed.py benchmarks/bench_streaming.py benchmarks/bench_types.py --codspeed
+```
+
+New benchmarks just need to use the `benchmark` fixture in a `bench_*.py` file.
+
 ## 📋 Pull Request Process
 
 1. **Ensure your PR:**

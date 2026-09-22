@@ -1,112 +1,128 @@
-"""CodSpeed Continuous Benchmarking Suite for B-FAST."""
+"""CodSpeed continuous benchmarking suite for B-FAST: core encode/decode paths."""
 
-import numpy as np
 import pytest
-from pydantic import BaseModel
 
 import b_fast
-from b_fast.streaming import (
-    BFastStreamDecoder,
-    BFastStreamEncoder,
-)
 
 
-class User(BaseModel):
-    id: int
-    name: str
-    email: str
-    active: bool
-    scores: list[float]
-    description: str
+@pytest.fixture(scope="session")
+def encoder():
+    return b_fast.BFast()
 
 
-@pytest.fixture(scope="module")
-def users_1k():
-    return [
-        User(
-            id=i,
-            name=f"User {i}",
-            email=f"user{i}@example.com",
-            active=i % 2 == 0,
-            scores=[float(i * j) for j in range(5)],
-            description=f"Description for user {i}",
-        )
-        for i in range(1000)
-    ]
+@pytest.fixture(scope="session")
+def packed_100(users_100):
+    return b_fast.BFast().encode_packed(users_100, compress=False)
 
 
-@pytest.fixture(scope="module")
-def users_10k():
-    return [
-        User(
-            id=i,
-            name=f"User {i}",
-            email=f"user{i}@example.com",
-            active=i % 2 == 0,
-            scores=[float(i * j) for j in range(5)],
-            description=f"Description for user {i}",
-        )
-        for i in range(10000)
-    ]
+@pytest.fixture(scope="session")
+def packed_1k(users_1k):
+    return b_fast.BFast().encode_packed(users_1k, compress=False)
 
 
-@pytest.fixture(scope="module")
-def packed_data_1k(users_1k):
-    encoder = b_fast.BFast()
-    return encoder.encode_packed(users_1k, compress=False)
+@pytest.fixture(scope="session")
+def packed_10k(users_10k):
+    return b_fast.BFast().encode_packed(users_10k, compress=False)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def packed_compressed_1k(users_1k):
-    encoder = b_fast.BFast()
-    return encoder.encode_packed(users_1k, compress=True)
+    return b_fast.BFast().encode_packed(users_1k, compress=True)
 
 
-@pytest.fixture(scope="module")
-def numpy_payload():
-    return {
-        "matrix_f64": np.random.rand(100, 100),
-        "vector_i64": np.arange(1000, dtype=np.int64),
-    }
+@pytest.fixture(scope="session")
+def packed_compressed_10k(users_10k):
+    return b_fast.BFast().encode_packed(users_10k, compress=True)
 
 
-def test_encode_1k_uncompressed(benchmark, users_1k):
-    encoder = b_fast.BFast()
+@pytest.fixture(scope="session")
+def packed_primitives_10k(primitives_10k):
+    return b_fast.BFast().encode_packed(primitives_10k, compress=False)
+
+
+@pytest.fixture(scope="session")
+def packed_nested_1k(nested_documents_1k):
+    return b_fast.BFast().encode_packed(nested_documents_1k, compress=False)
+
+
+# --- Encoding: Pydantic models -------------------------------------------------
+
+
+def test_encode_100_uncompressed(benchmark, encoder, users_100):
+    benchmark(lambda: encoder.encode_packed(users_100, compress=False))
+
+
+def test_encode_1k_uncompressed(benchmark, encoder, users_1k):
     benchmark(lambda: encoder.encode_packed(users_1k, compress=False))
 
 
-def test_encode_1k_compressed(benchmark, users_1k):
-    encoder = b_fast.BFast()
+def test_encode_1k_compressed(benchmark, encoder, users_1k):
     benchmark(lambda: encoder.encode_packed(users_1k, compress=True))
 
 
-def test_encode_10k_compressed_parallel(benchmark, users_10k):
-    encoder = b_fast.BFast()
+def test_encode_10k_uncompressed(benchmark, encoder, users_10k):
+    benchmark(lambda: encoder.encode_packed(users_10k, compress=False))
+
+
+def test_encode_10k_compressed_parallel(benchmark, encoder, users_10k):
+    """Above PARALLEL_COMPRESSION_THRESHOLD: exercises the rayon compression path."""
     benchmark(lambda: encoder.encode_packed(users_10k, compress=True))
 
 
-def test_decode_1k_uncompressed(benchmark, packed_data_1k):
-    encoder = b_fast.BFast()
-    benchmark(lambda: encoder.decode_packed(packed_data_1k))
+# --- Encoding: plain Python containers -----------------------------------------
 
 
-def test_decode_1k_compressed(benchmark, packed_compressed_1k):
-    encoder = b_fast.BFast()
+def test_encode_nested_dicts_1k(benchmark, encoder, nested_documents_1k):
+    benchmark(lambda: encoder.encode_packed(nested_documents_1k, compress=False))
+
+
+def test_encode_primitives_10k(benchmark, encoder, primitives_10k):
+    benchmark(lambda: encoder.encode_packed(primitives_10k, compress=False))
+
+
+# --- Decoding ------------------------------------------------------------------
+
+
+def test_decode_100_uncompressed(benchmark, encoder, packed_100):
+    benchmark(lambda: encoder.decode_packed(packed_100))
+
+
+def test_decode_1k_uncompressed(benchmark, encoder, packed_1k):
+    benchmark(lambda: encoder.decode_packed(packed_1k))
+
+
+def test_decode_1k_compressed(benchmark, encoder, packed_compressed_1k):
     benchmark(lambda: encoder.decode_packed(packed_compressed_1k))
 
 
-def test_encode_numpy(benchmark, numpy_payload):
-    encoder = b_fast.BFast()
-    benchmark(lambda: encoder.encode_packed(numpy_payload, compress=False))
+def test_decode_10k_uncompressed(benchmark, encoder, packed_10k):
+    benchmark(lambda: encoder.decode_packed(packed_10k))
 
 
-def test_stream_framing(benchmark):
-    stream_encoder = BFastStreamEncoder()
-    obj = {"status": "ok", "items": [1, 2, 3, 4, 5]}
-    frame = stream_encoder.encode_frame(obj, compress=False)
+def test_decode_10k_compressed(benchmark, encoder, packed_compressed_10k):
+    benchmark(lambda: encoder.decode_packed(packed_compressed_10k))
 
-    def run_stream():
-        decoder = BFastStreamDecoder(expect_handshake=False)
-        decoder.feed(frame)
 
-    benchmark(run_stream)
+def test_decode_nested_dicts_1k(benchmark, encoder, packed_nested_1k):
+    benchmark(lambda: encoder.decode_packed(packed_nested_1k))
+
+
+def test_decode_primitives_10k(benchmark, encoder, packed_primitives_10k):
+    benchmark(lambda: encoder.decode_packed(packed_primitives_10k))
+
+
+# --- Round trip ----------------------------------------------------------------
+
+
+def test_round_trip_1k_uncompressed(benchmark, encoder, users_1k):
+    def round_trip():
+        return encoder.decode_packed(encoder.encode_packed(users_1k, compress=False))
+
+    benchmark(round_trip)
+
+
+def test_round_trip_1k_compressed(benchmark, encoder, users_1k):
+    def round_trip():
+        return encoder.decode_packed(encoder.encode_packed(users_1k, compress=True))
+
+    benchmark(round_trip)
