@@ -21,6 +21,45 @@ async function fetchData() {
 }
 ```
 
+### Streaming HTTP em Tempo Real (Streamable HTTP) 🌊
+
+Consuma streams contínuos enviados por `BFastStreamingResponse` ou servidores MCP usando `readBFastStream`:
+
+```typescript
+import { readBFastStream } from 'bfast-client';
+
+async function streamUsers() {
+    const response = await fetch('/api/stream-users', {
+        headers: { 'Accept': 'application/x-bfast-stream' }
+    });
+
+    if (!response.body) return;
+
+    // Consome frames binários de forma assíncrona conforme chegam pela rede
+    for await (const user of readBFastStream(response.body)) {
+        console.log('Usuário recebido em tempo real:', user);
+    }
+}
+```
+
+#### Decodificador de Stream de Baixo Nível (`BFastStreamDecoder`)
+
+Para WebSockets, conexões TCP ou controle manual de buffers:
+
+```typescript
+import { BFastStreamDecoder } from 'bfast-client';
+
+const decoder = new BFastStreamDecoder({ maxFrameSize: 16 * 1024 * 1024 });
+
+// Recebendo chunks binários (Uint8Array)
+function onChunkReceived(chunk: Uint8Array) {
+    const items = decoder.feed(chunk);
+    for (const item of items) {
+        console.log('Item decodificado:', item);
+    }
+}
+```
+
 ### React Hook Personalizado
 ```typescript
 import { useState, useEffect } from 'react';
