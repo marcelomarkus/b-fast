@@ -108,7 +108,7 @@ def test_encoder_reuse():
 def test_version():
     """Test that b_fast exports a valid version string matching Cargo.toml."""
     assert isinstance(b_fast.__version__, str)
-    assert b_fast.__version__ == "1.5.0"
+    assert b_fast.__version__ == "1.5.1"
 
 
 if __name__ == "__main__":
