@@ -81,3 +81,8 @@ module-name = "b_fast._b_fast"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[dependency-groups]
+dev = [
+    "pytest-codspeed>=2.2.1",
+]
+
