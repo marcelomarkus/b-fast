@@ -11,6 +11,27 @@ class UserModel(BaseModel):  # Renamed to avoid pytest collection warning
     active: bool
 
 
+class ComplexUserModel(BaseModel):
+    id: int
+    scores: list[float]
+    metadata: dict
+
+
+def test_pydantic_batch_nested_structures():
+    """Test Pydantic models with nested lists and dicts in batch encoding."""
+    encoder = b_fast.BFast()
+    users = [
+        ComplexUserModel(id=i, scores=[1.0, 2.5], metadata={"key": f"val_{i}"})
+        for i in range(10)
+    ]
+    encoded = encoder.encode_packed(users, compress=False)
+    decoded = encoder.decode_packed(encoded)
+    assert len(decoded) == 10
+    assert decoded[0]["id"] == 0
+    assert decoded[0]["scores"] == [1.0, 2.5]
+    assert decoded[0]["metadata"] == {"key": "val_0"}
+
+
 def test_basic_encoding():
     """Test basic B-FAST encoding functionality."""
     encoder = b_fast.BFast()
@@ -82,6 +103,12 @@ def test_encoder_reuse():
     assert isinstance(result2, (bytes, list))
     assert len(result1) > 0
     assert len(result2) > 0
+
+
+def test_version():
+    """Test that b_fast exports a valid version string matching Cargo.toml."""
+    assert isinstance(b_fast.__version__, str)
+    assert b_fast.__version__ == "1.5.0"
 
 
 if __name__ == "__main__":

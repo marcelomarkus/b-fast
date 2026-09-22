@@ -205,39 +205,26 @@ impl BFast {
                 ));
             }
             let string_bytes = &decompressed_data[offset..offset + length];
-            let string_val = std::str::from_utf8(string_bytes)
-                .map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                        "Invalid UTF-8 in string table: {}",
-                        e
-                    ))
-                })?
-                .to_string();
-            string_table.push(string_val);
+            let string_val = std::str::from_utf8(string_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in string table: {}",
+                    e
+                ))
+            })?;
+            string_table.push(PyString::new(py, string_val));
             offset += length;
         }
-
-        let datetime_module = py.import("datetime")?;
-        let datetime_class = datetime_module.getattr("datetime")?;
-        let date_class = datetime_module.getattr("date")?;
-        let time_class = datetime_module.getattr("time")?;
-
-        let uuid_module = py.import("uuid")?;
-        let uuid_class = uuid_module.getattr("UUID")?;
-
-        let decimal_module = py.import("decimal")?;
-        let decimal_class = decimal_module.getattr("Decimal")?;
 
         let mut parser = BFastParser {
             py,
             data: &decompressed_data,
             offset,
             string_table: &string_table,
-            datetime_class,
-            date_class,
-            time_class,
-            uuid_class,
-            decimal_class,
+            datetime_class: None,
+            date_class: None,
+            time_class: None,
+            uuid_class: None,
+            decimal_class: None,
             recursion_depth: 0,
         };
 
@@ -318,7 +305,8 @@ impl BFast {
         }
 
         let dict = first_item.getattr("__dict__")?.downcast::<PyDict>()?;
-        let field_names: Vec<String> = dict.keys().iter().map(|k| k.to_string()).collect();
+        let field_keys: Vec<&PyAny> = dict.keys().iter().collect();
+        let field_names: Vec<String> = field_keys.iter().map(|k| k.to_string()).collect();
 
         let field_ids: Vec<u32> = field_names
             .iter()
@@ -326,7 +314,7 @@ impl BFast {
             .collect();
 
         // Auto-detect: check if first object has complex types
-        let use_fast_mode = self.detect_simple_types(dict, &field_names)?;
+        let use_fast_mode = self.detect_simple_types(dict, &field_keys)?;
 
         self.ensure_buffer_capacity(5 + len * 50);
         self.work_buffer.push(0x60);
@@ -337,12 +325,12 @@ impl BFast {
         if use_fast_mode {
             // Fast path: simple types only (int, str, float, bool)
             for item in list.iter() {
-                self.serialize_pydantic_fast(item, &field_names, &field_ids)?;
+                self.serialize_pydantic_fast(item, &field_keys, &field_ids)?;
             }
         } else {
             // Complex path: handles datetime, UUID, Decimal, etc.
             for item in list.iter() {
-                self.serialize_pydantic_complex(item, &field_names, &field_ids)?;
+                self.serialize_pydantic_complex(item, &field_keys, &field_ids)?;
             }
         }
 
@@ -351,10 +339,10 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn detect_simple_types(&self, dict: &PyDict, field_names: &[String]) -> PyResult<bool> {
+    fn detect_simple_types(&self, dict: &PyDict, field_keys: &[&PyAny]) -> PyResult<bool> {
         // Check first object's field types
-        for field_name in field_names {
-            if let Some(value) = dict.get_item(field_name)? {
+        for key in field_keys {
+            if let Some(value) = dict.get_item(key)? {
                 if value.is_none() {
                     continue;
                 }
@@ -374,7 +362,7 @@ impl BFast {
     fn serialize_pydantic_fast(
         &mut self,
         obj: &PyAny,
-        field_names: &[String],
+        field_keys: &[&PyAny],
         field_ids: &[u32],
     ) -> PyResult<()> {
         self.work_buffer.push(0x70);
@@ -382,11 +370,11 @@ impl BFast {
         let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
 
         // Fast path: direct iteration for simple types
-        for (i, field_name) in field_names.iter().enumerate() {
+        for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
                 .extend_from_slice(&field_ids[i].to_le_bytes());
 
-            if let Some(value) = dict.get_item(field_name)? {
+            if let Some(value) = dict.get_item(key)? {
                 self.serialize_value_fast(value)?;
             } else {
                 self.work_buffer.push(0x10);
@@ -453,16 +441,28 @@ impl BFast {
             return Ok(());
         }
 
-        // Fallback
-        self.work_buffer.push(0x10);
-        Ok(())
+        // Fast path for list in serialize_value_fast
+        if let Ok(list) = val.downcast::<PyList>() {
+            self.work_buffer.push(0x60);
+            let len = list.len();
+            self.work_buffer
+                .extend_from_slice(&(len as u32).to_le_bytes());
+
+            for item in list.iter() {
+                self.serialize_value_fast(item)?;
+            }
+            return Ok(());
+        }
+
+        // Fallback: handle dicts and complex types properly
+        self.serialize_any_optimized(val)
     }
 
     #[inline(always)]
     fn serialize_pydantic_complex(
         &mut self,
         obj: &PyAny,
-        field_names: &[String],
+        field_keys: &[&PyAny],
         field_ids: &[u32],
     ) -> PyResult<()> {
         // Complex path: handles all types including datetime, UUID, Decimal
@@ -470,11 +470,11 @@ impl BFast {
 
         let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
 
-        for (i, field_name) in field_names.iter().enumerate() {
+        for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
                 .extend_from_slice(&field_ids[i].to_le_bytes());
 
-            if let Some(value) = dict.get_item(field_name)? {
+            if let Some(value) = dict.get_item(key)? {
                 self.serialize_value_ultra_fast(value)?;
             } else {
                 self.work_buffer.push(0x10);
@@ -601,24 +601,6 @@ impl BFast {
             }
         }
 
-        // Enum handling
-        if val.hasattr("__class__")? {
-            if let Ok(class) = val.getattr("__class__") {
-                if let Ok(bases) = class.getattr("__bases__") {
-                    if let Ok(bases_tuple) = bases.downcast::<PyTuple>() {
-                        for base in bases_tuple.iter() {
-                            if let Ok(base_name) = base.getattr("__name__")?.extract::<String>() {
-                                if base_name == "Enum" || base_name == "IntEnum" {
-                                    let enum_value = val.getattr("value")?;
-                                    return self.serialize_value_ultra_fast(enum_value);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         self.serialize_any_optimized(val)
     }
 
@@ -693,95 +675,67 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(b) = val.extract::<bool>() {
+        // 1. PyBool MUST come before PyLong because bool is a subclass of int in Python
+        if val.is_instance_of::<pyo3::types::PyBool>() {
+            let b = val.extract::<bool>()?;
             self.work_buffer.push(if b { 0x21 } else { 0x20 });
             return Ok(());
         }
 
-        // Check special types BEFORE basic types (Decimal can be extracted as f64)
-        // Decimal
-        if let Ok(type_name) = val.get_type().name() {
-            if type_name == "Decimal" {
-                let dec_str = val.str()?.extract::<String>()?;
-                self.work_buffer.push(TAG_DECIMAL);
-                let bytes = dec_str.as_bytes();
-                self.work_buffer
-                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                self.work_buffer.extend_from_slice(bytes);
+        // 2. PyLong (int)
+        if val.is_instance_of::<pyo3::types::PyLong>() {
+            if let Ok(n) = val.extract::<i64>() {
+                if (0..=7).contains(&n) {
+                    self.work_buffer.push(0x30 | (n as u8));
+                } else {
+                    self.work_buffer.push(0x38);
+                    self.work_buffer.extend_from_slice(&n.to_le_bytes());
+                }
                 return Ok(());
             }
         }
 
-        // datetime, date, time (ISO 8601) with type preservation
-        if val.hasattr("isoformat")? {
-            let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
-            let type_name = val.get_type().name()?;
-
-            let tag = match type_name {
-                "datetime" => TAG_DATETIME,
-                "date" => TAG_DATE,
-                "time" => TAG_TIME,
-                _ => 0x50,
-            };
-
-            self.work_buffer.push(tag);
-            let bytes = iso_str.as_bytes();
-            self.work_buffer
-                .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-            self.work_buffer.extend_from_slice(bytes);
-            return Ok(());
-        }
-
-        // UUID
-        if val.hasattr("hex")? {
-            if let Ok(type_name) = val.get_type().name() {
-                if type_name == "UUID" {
-                    let hex_str = val.getattr("hex")?.extract::<String>()?;
-                    self.work_buffer.push(TAG_UUID);
-                    let bytes = hex_str.as_bytes();
-                    self.work_buffer
-                        .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                    self.work_buffer.extend_from_slice(bytes);
-                    return Ok(());
-                }
-            }
-        }
-
-        if let Ok(n) = val.extract::<i64>() {
-            if (0..=7).contains(&n) {
-                self.work_buffer.push(0x30 | (n as u8));
-            } else {
-                self.work_buffer.push(0x38);
-                self.work_buffer.extend_from_slice(&n.to_le_bytes());
-            }
-            return Ok(());
-        }
-
-        if let Ok(f) = val.extract::<f64>() {
+        // 3. PyFloat (float)
+        if val.is_instance_of::<pyo3::types::PyFloat>() {
+            let f = val.extract::<f64>()?;
             self.work_buffer.push(0x40);
             self.work_buffer.extend_from_slice(&f.to_le_bytes());
             return Ok(());
         }
 
+        // 4. PyString (str)
         if let Ok(py_str) = val.downcast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
+            self.ensure_buffer_capacity(4 + bytes.len());
             self.work_buffer
                 .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             self.work_buffer.extend_from_slice(bytes);
             return Ok(());
         }
 
-        // bytes / bytearray (check before collections)
-        if let Ok(py_bytes) = val.extract::<&[u8]>() {
-            self.work_buffer.push(0x80);
-            self.work_buffer
-                .extend_from_slice(&(py_bytes.len() as u32).to_le_bytes());
-            self.work_buffer.extend_from_slice(py_bytes);
+        // 5. PyDict (dict)
+        if let Ok(dict) = val.downcast::<PyDict>() {
+            self.work_buffer.push(0x70);
+
+            for (k, v) in dict.iter() {
+                let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
+                    py_str.to_str()?
+                } else {
+                    &k.to_string()
+                };
+
+                let id = self.get_or_create_string_id_fast(key_str);
+                self.work_buffer.extend_from_slice(&id.to_le_bytes());
+                self.serialize_any_optimized(v)?;
+            }
+
+            self.work_buffer.push(0x7F);
             return Ok(());
         }
 
+        // 6. PyList (list)
         if let Ok(list) = val.downcast::<PyList>() {
             self.work_buffer.push(0x60);
             let len = list.len();
@@ -794,7 +748,7 @@ impl BFast {
             return Ok(());
         }
 
-        // tuple (serialize as list)
+        // 7. PyTuple (serialize as list)
         if let Ok(tuple) = val.downcast::<PyTuple>() {
             self.work_buffer.push(0x60);
             let len = tuple.len();
@@ -807,7 +761,7 @@ impl BFast {
             return Ok(());
         }
 
-        // set / frozenset (serialize as list)
+        // 8. PySet / PyFrozenSet (serialize as list)
         if let Ok(set) = val.downcast::<PySet>() {
             self.work_buffer.push(0x60);
             let len = set.len();
@@ -832,6 +786,16 @@ impl BFast {
             return Ok(());
         }
 
+        // 9. PyBytes / bytearray
+        if let Ok(py_bytes) = val.extract::<&[u8]>() {
+            self.work_buffer.push(0x80);
+            self.work_buffer
+                .extend_from_slice(&(py_bytes.len() as u32).to_le_bytes());
+            self.work_buffer.extend_from_slice(py_bytes);
+            return Ok(());
+        }
+
+        // 10. NumPy array
         if let Ok(array) = val.extract::<PyReadonlyArrayDyn<f64>>() {
             self.work_buffer.push(0x90);
             let raw_data = array.as_slice()?;
@@ -845,43 +809,66 @@ impl BFast {
             return Ok(());
         }
 
-        // Check for dict or __dict__ (Pydantic models)
-        if let Ok(dict) = val.downcast::<PyDict>() {
-            self.work_buffer.push(0x70);
-
-            for (k, v) in dict.iter() {
-                let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
-                    py_str.to_str()?
-                } else {
-                    &k.to_string()
-                };
-
-                let id = self.get_or_create_string_id_fast(key_str);
-                self.work_buffer.extend_from_slice(&id.to_le_bytes());
-                self.serialize_any_optimized(v)?;
+        // 11. Decimal
+        if let Ok(type_name) = val.get_type().name() {
+            if type_name == "Decimal" {
+                let dec_str = val.str()?.extract::<String>()?;
+                self.work_buffer.push(TAG_DECIMAL);
+                let bytes = dec_str.as_bytes();
+                self.work_buffer
+                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                self.work_buffer.extend_from_slice(bytes);
+                return Ok(());
             }
+        }
 
-            self.work_buffer.push(0x7F);
+        // 12. datetime, date, time (ISO 8601) with type preservation
+        if val.hasattr("isoformat")? {
+            let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
+            let type_name = val.get_type().name()?;
+
+            let tag = match type_name {
+                "datetime" => TAG_DATETIME,
+                "date" => TAG_DATE,
+                "time" => TAG_TIME,
+                _ => 0x50,
+            };
+
+            self.work_buffer.push(tag);
+            let bytes = iso_str.as_bytes();
+            self.work_buffer
+                .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            self.work_buffer.extend_from_slice(bytes);
             return Ok(());
         }
 
-        // Enum (extract value) - check BEFORE __dict__
-        if val.hasattr("value")? && val.hasattr("name")? {
-            // Check if it's actually an Enum by checking the type name
-            if let Ok(_type_name) = val.get_type().name() {
-                // Python Enum types have names like "Priority", "Status", etc.
-                // Check if it has __class__.__bases__ that includes Enum
-                if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
-                    let bases_str = bases.str()?.extract::<String>()?;
-                    if bases_str.contains("Enum") {
-                        let enum_value = val.getattr("value")?;
-                        return self.serialize_any_optimized(enum_value);
-                    }
+        // 13. UUID
+        if val.hasattr("hex")? {
+            if let Ok(type_name) = val.get_type().name() {
+                if type_name == "UUID" {
+                    let hex_str = val.getattr("hex")?.extract::<String>()?;
+                    self.work_buffer.push(TAG_UUID);
+                    let bytes = hex_str.as_bytes();
+                    self.work_buffer
+                        .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    self.work_buffer.extend_from_slice(bytes);
+                    return Ok(());
                 }
             }
         }
 
-        // Try __dict__ for Pydantic models
+        // 14. Enum (extract value) - check BEFORE __dict__
+        if val.hasattr("value")? && val.hasattr("name")? {
+            if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
+                let bases_str = bases.str()?.extract::<String>()?;
+                if bases_str.contains("Enum") {
+                    let enum_value = val.getattr("value")?;
+                    return self.serialize_any_optimized(enum_value);
+                }
+            }
+        }
+
+        // 15. Try __dict__ for Pydantic models
         if let Ok(dict_attr) = val.getattr("__dict__") {
             if let Ok(dict) = dict_attr.downcast::<PyDict>() {
                 self.work_buffer.push(0x70);
@@ -916,6 +903,7 @@ impl BFast {
 
 #[pymodule]
 fn _b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<BFast>()?;
     m.add_class::<streaming::BFastStreamDecoder>()?;
     m.add_class::<streaming::BFastStreamEncoder>()?;
@@ -989,16 +977,66 @@ struct BFastParser<'a, 'py> {
     py: Python<'py>,
     data: &'a [u8],
     offset: usize,
-    string_table: &'a [String],
-    datetime_class: &'py PyAny,
-    date_class: &'py PyAny,
-    time_class: &'py PyAny,
-    uuid_class: &'py PyAny,
-    decimal_class: &'py PyAny,
+    string_table: &'a [&'py PyString],
+    datetime_class: Option<&'py PyAny>,
+    date_class: Option<&'py PyAny>,
+    time_class: Option<&'py PyAny>,
+    uuid_class: Option<&'py PyAny>,
+    decimal_class: Option<&'py PyAny>,
     recursion_depth: usize,
 }
 
 impl<'a, 'py> BFastParser<'a, 'py> {
+    fn get_datetime_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.datetime_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("datetime")?.getattr("datetime")?;
+            self.datetime_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_date_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.date_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("datetime")?.getattr("date")?;
+            self.date_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_time_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.time_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("datetime")?.getattr("time")?;
+            self.time_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_uuid_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.uuid_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("uuid")?.getattr("UUID")?;
+            self.uuid_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
+    fn get_decimal_class(&mut self) -> PyResult<&'py PyAny> {
+        if let Some(cls) = self.decimal_class {
+            Ok(cls)
+        } else {
+            let cls = self.py.import("decimal")?.getattr("Decimal")?;
+            self.decimal_class = Some(cls);
+            Ok(cls)
+        }
+    }
+
     fn check_bounds(&self, size: usize) -> PyResult<()> {
         if self.offset + size > self.data.len() {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -1116,7 +1154,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     )));
                 }
 
-                let key = &self.string_table[key_id];
+                let key = self.string_table[key_id];
                 let value = self.parse()?;
                 dict.set_item(key, value)?;
             }
@@ -1181,7 +1219,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self
-                .datetime_class
+                .get_datetime_class()?
                 .call_method1("fromisoformat", (iso_str,))?;
             return Ok(obj.into());
         }
@@ -1202,7 +1240,9 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.date_class.call_method1("fromisoformat", (iso_str,))?;
+            let obj = self
+                .get_date_class()?
+                .call_method1("fromisoformat", (iso_str,))?;
             return Ok(obj.into());
         }
 
@@ -1222,7 +1262,9 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.time_class.call_method1("fromisoformat", (iso_str,))?;
+            let obj = self
+                .get_time_class()?
+                .call_method1("fromisoformat", (iso_str,))?;
             return Ok(obj.into());
         }
 
@@ -1242,7 +1284,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.uuid_class.call1((hex_str,))?;
+            let obj = self.get_uuid_class()?.call1((hex_str,))?;
             return Ok(obj.into());
         }
 
@@ -1262,7 +1304,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     e
                 ))
             })?;
-            let obj = self.decimal_class.call1((dec_str,))?;
+            let obj = self.get_decimal_class()?.call1((dec_str,))?;
             return Ok(obj.into());
         }
 

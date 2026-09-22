@@ -36,9 +36,17 @@ Full documentation available at: **https://marcelomarkus.github.io/b-fast/**
 |--------|-----------|---------|
 | JSON | 12.0ms | 1.0x |
 | orjson | 8.19ms | 1.5x |
-| **B-FAST** | **4.83ms** | **🚀 2.5x** |
+| **B-FAST** | **2.01ms** | **🚀 6.0x** |
 
-**B-FAST is 1.7x faster than orjson!**
+**B-FAST is 4.1x faster than orjson!**
+
+### 🌊 Streaming Protocol (1,000 frames)
+| Metric | Performance | Speedup / Throughput |
+|--------|-------------|----------------------|
+| **Streaming Decode (Aligned)** | **11.8ms** | **~85,000 frames/s** |
+| **Streaming Decode (Fragmented)** | **13.6ms** | **~73,500 frames/s** |
+| **Single Frame Latency** | **139.2µs** | **Real-time instant parsing** |
+| **Sustained Stream Throughput** | **12,500 frames/s** | **High-frequency event feeds** |
 
 ### 🔄 Round-Trip (Encode + Network + Decode)
 Complete test including network transfer and deserialization (10,000 objects):
@@ -69,7 +77,8 @@ Complete test including network transfer and deserialization (10,000 objects):
 - **🌐 APIs with slow networks**: Up to 5.7x faster than orjson
 - **📊 Data pipelines**: 14-96x speedup for NumPy arrays
 - **🗜️ Storage/Cache**: Superior integrated compression
-- **🚀 Simple objects**: 1.7x faster than orjson
+- **🚀 Simple objects**: 4.1x faster than orjson
+- **🌊 Real-time Streaming**: > 12,500 frames/s with zero-allocation chunk parsing
 
 ## 📦 Installation
 
@@ -202,8 +211,9 @@ async function streamData() {
 ## About B-FAST
 
 **Key Achievements:**
-- 🚀 **1.7x faster** than orjson for simple objects
+- 🚀 **4.1x faster** than orjson for simple objects (2.01 ms)
 - 🚀 **5.7x faster** than orjson on 100 Mbps networks (round-trip)
+- 🌊 **12,500+ frames/sec** sustained streaming throughput (~139 µs latency)
 - 📦 **89% smaller** payloads with built-in LZ4 compression
 - ⚡ **14-96x speedup** for NumPy arrays
 - 🎯 **Competitive** even on ultra-fast 10 Gbps networks
@@ -213,7 +223,7 @@ async function streamData() {
 </p>
 
 <p align="center">
-  <em>B-FAST performance comparison across different scenarios: simple objects, large objects on 100 Mbps network, NumPy arrays, and payload size. B-FAST demonstrates superiority in speed (1.7-14x faster) and bandwidth efficiency (90% reduction with LZ4).</em>
+  <em>B-FAST performance comparison across 6 key scenarios: simple objects encoding, zero-copy NumPy arrays, payload size, 100 Mbps round-trip, streaming decode time, and streaming throughput. B-FAST demonstrates clear superiority in speed (2.1-14x faster) and bandwidth efficiency (90% reduction with LZ4).</em>
 </p>
 
 **Developed by:** [marcelomarkus](https://github.com/marcelomarkus)
