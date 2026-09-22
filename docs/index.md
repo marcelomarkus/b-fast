@@ -19,15 +19,59 @@ B-FAST was born from the recognition that modern applications need more than jus
 
 **Philosophy:** We believe that the future of data transfer lies not in raw CPU speed alone, but in intelligent protocols that minimize network overhead while maintaining excellent performance. B-FAST represents our contribution to a more efficient, bandwidth-conscious web.
 
-## 🚀 Why B-FAST?
+## 🚀 Features & Architecture
 
-- **Rust Engine:** Native serialization without Python interpreter overhead
-- **Streamable HTTP:** Continuous binary streaming (`application/x-bfast-stream`) with length-prefixed framing and zero-copy transfer
-- **Model Context Protocol (MCP):** Native Streamable HTTP transport for AI agent tool output
-- **Pydantic Native:** Reads Pydantic model attributes directly from memory, skipping the slow .model_dump() process
-- **Zero-Copy NumPy:** Serializes tensors and numeric arrays directly, achieving 14-96x speedup vs JSON/orjson
-- **Parallel Compression:** LZ4 with multi-thread processing for large payloads (>1MB)
-- **Cache Optimized:** Aligned allocation and batch processing for maximum efficiency
+<div class="grid cards" markdown>
+
+-   __⚡ Extreme Performance__
+
+    ---
+
+    **2.01 ms** for 10k objects (**4.1x faster** than orjson, **6.0x vs JSON**). Up to **24x faster** primitive serialization via Rust fast-paths.
+
+    [:octicons-arrow-right-24: View Benchmarks](performance.md)
+
+-   __🌊 Real-Time Streaming & MCP__
+
+    ---
+
+    Continuous binary streaming (`application/x-bfast-stream`), chunked HTTP transfer, and Model Context Protocol (MCP) tool results.
+
+    [:octicons-arrow-right-24: Streaming Guide](streaming.md)
+
+-   __🐍 FastAPI Integration__
+
+    ---
+
+    Drop-in `BFastResponse` and `BFastStreamingResponse` supporting both synchronous and asynchronous generators (`AsyncGenerator`).
+
+    [:octicons-arrow-right-24: Getting Started](getting_started.md)
+
+-   __💻 TypeScript Client__
+
+    ---
+
+    High-performance client for browsers and Node.js (`bfast-client`) with streaming `decodeReadableStream` support.
+
+    [:octicons-arrow-right-24: Frontend Guide](frontend.md)
+
+-   __🧮 Zero-Copy NumPy & SIMD__
+
+    ---
+
+    Direct memory mapping for tensors and numerical arrays (**14-96x speedup**) with cache-aligned batch processing.
+
+    [:octicons-arrow-right-24: Optimizations](optimizations.md)
+
+-   __📚 API Reference__
+
+    ---
+
+    Complete reference for all classes, methods, parameters, and helper utilities in Python and TypeScript.
+
+    [:octicons-arrow-right-24: API Reference](api.md)
+
+</div>
 
 ## 📊 Performance
 

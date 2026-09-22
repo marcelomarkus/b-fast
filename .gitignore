@@ -34,8 +34,8 @@ npm-debug.log
 benchmark_results.png
 *.bin
 
-# Internal/Strategic docs
-docs/specification.md/dev/
+# Internal development notes & strategy (local only)
+dev/
 
 # claude skills
 .claude/

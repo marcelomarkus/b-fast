@@ -8,11 +8,20 @@ repo_name = "marcelomarkus/b-fast"
 
 nav = [
   { "Home" = "index.md" },
-  { "Getting Started" = "getting_started.md" },
-  { "Frontend" = "frontend.md" },
-  { "Performance" = "performance.md" },
-  { "Troubleshooting" = "troubleshooting.md" },
-  { "Contributing" = "contributing.md" },
+  { "Guides" = [
+    { "Getting Started" = "getting_started.md" },
+    { "Streaming & MCP" = "streaming.md" },
+    { "Frontend (TypeScript)" = "frontend.md" },
+    { "Optimizations" = "optimizations.md" },
+  ]},
+  { "Reference" = [
+    { "API Reference" = "api.md" },
+    { "Performance & Benchmarks" = "performance.md" },
+  ]},
+  { "Community" = [
+    { "Troubleshooting" = "troubleshooting.md" },
+    { "Contributing" = "contributing.md" },
+  ]},
 ]
 
 [project.theme]

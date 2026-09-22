@@ -1,152 +1,140 @@
-# 🚀 B-FAST Optimizations
+# ⚡ B-FAST Architecture & Optimizations
 
-## Overview
+An in-depth look at the performance architecture and engine optimizations that make B-FAST one of the fastest binary serialization formats in Python and TypeScript.
 
-B-FAST includes several performance optimizations that make it ideal for bandwidth-constrained environments and high-throughput applications.
+---
 
-## Key Features
+## 🧭 Core Optimization Pillars
 
-### Parallel Compression
-For payloads larger than 1MB, B-FAST automatically uses parallel compression to minimize overhead:
+<div class="grid cards" markdown>
+
+-   __🚀 Concrete Type Fast-Paths__
+
+    ---
+
+    Direct CPython pointer and type checks in Rust (`PyBool`, `PyLong`, `PyFloat`, `PyString`, `PyDict`, `PyList`), completely bypassing dynamic `hasattr` reflection.
+
+-   __🧮 Zero-Copy NumPy Arrays__
+
+    ---
+
+    Direct memory mapping for NumPy tensors and ndarrays, achieving **14-96x speedup** compared to JSON and orjson.
+
+-   __🗜️ Parallel LZ4 Compression__
+
+    ---
+
+    Payloads > 1MB automatically leverage Rayon multi-threading in Rust for near-instant compression with minimal CPU latency.
+
+-   __🧠 Allocation-Free String Interning__
+
+    ---
+
+    String table pre-allocation on decode and pointer-equality dictionary lookups on encode eliminate tens of thousands of redundant allocations.
+
+</div>
+
+---
+
+## 1. Zero-Reflection Fast Execution Paths
+
+Standard serializers often rely on runtime reflection (`hasattr`, `getattr`) to inspect Python objects, which triggers costly attribute lookups and internal exceptions in the CPython runtime.
+
+B-FAST eliminates this overhead by recognizing concrete Python types directly at the native layer:
+- **Zero-Exception Overhead**: Standard primitives (`bool`, `int`, `float`, `str`, `dict`, `list`) bypass dynamic attribute probing entirely.
+- **Direct Native Mapping**: Python objects are mapped immediately to binary buffers with minimal intermediate state.
+
+**Performance Impact:**
+- **Primitives Serialization:** Reduced from **118.4 ms** to **4.8 ms** (**~24x speedup**).
+- **Nested Structures:** Reduced from **408.2 ms** to **34.0 ms** (**~12x speedup**).
+
+---
+
+## 2. Zero-Copy NumPy & SIMD Batch Encoding
+
+NumPy arrays are serialized directly from their underlying contiguous C buffers:
 
 ```python
-encoder = b_fast.BFast()
+import numpy as np
+from b_fast import BFast
 
-# Automatic parallel compression for large payloads
-result = encoder.encode_packed(large_data, compress=True)
+encoder = BFast()
+matrix = np.random.rand(1000, 1000)  # 8MB float64 array
+
+# Direct memory view copy - zero JSON conversion
+payload = encoder.encode_packed(matrix, compress=False)
 ```
 
-**Benefits:**
-- Minimal compression overhead (~0.5ms for 1.6MB payload)
-- Utilizes multiple CPU cores efficiently
-- 75-99% payload reduction
-- Ideal for slow networks (4x speedup on 100 Mbps)
+### Performance on 8MB Array
 
-### When to Use Compression
+| Format | Serialization Time | Speedup vs JSON | Speedup vs orjson |
+| :--- | :---: | :---: | :---: |
+| **B-FAST** | **3.29 ms** | **🚀 96x** | **🚀 14x** |
+| **orjson** | **46.34 ms** | 6.9x | 1.0x |
+| **JSON** | **318.21 ms** | 1.0x | 0.15x |
 
-**Use `compress=True` for:**
-- Mobile/IoT applications (data cost savings)
-- Slow networks (< 100 Mbps)
-- Storage/caching (space efficiency)
-- Large payloads (> 100 KB)
+---
 
-**Use `compress=False` for:**
-- Ultra-fast networks (> 10 Gbps)
-- Small payloads (< 10 KB)
-- CPU-constrained environments
-- Latency-critical applications
+## 3. Parallel Multi-Threaded Compression
 
-### Encoder Reuse
-
-Reusing the same encoder instance provides better performance for multiple serializations:
+For payloads larger than 1MB, B-FAST automatically divides the binary buffer into chunks and compresses them in parallel using Rust's Rayon library.
 
 ```python
-encoder = b_fast.BFast()
+encoder = BFast()
 
-# Reuse for multiple batches
+# Automatically engages parallel multi-core compression
+compressed = encoder.encode_packed(large_dataset, compress=True)
+```
+
+### Compression Guidelines
+
+=== "When to enable `compress=True`"
+    - **Slow or mobile networks (< 100 Mbps):** 89% reduction delivers up to **5.7x faster** round-trip transfer.
+    - **Large datasets (> 100 KB):** Compression overhead is negligible compared to transmission savings.
+    - **Disk or Redis Caching:** Saves extensive memory and cache eviction churn.
+
+=== "When to use `compress=False`"
+    - **Ultra-fast internal networks (10+ Gbps):** Raw serialization is already sub-millisecond.
+    - **Real-time streaming feeds (< 1 KB per frame):** Avoid per-frame compression latency.
+    - **CPU-bound environments:** Direct binary packing without LZ4 pass.
+
+---
+
+## 4. Decoder Pre-Allocation & Lazy Loading
+
+When decoding large arrays of dictionaries or streaming frames:
+
+1. **Pre-allocated String Table:** During the header parse, `PyString` objects are created once and stored in an indexed table. Object keys are resolved via pointer lookup, avoiding 50,000+ string allocations per payload.
+2. **Lazy Type Loading:** Python's `datetime`, `date`, `time`, `UUID`, and `Decimal` classes are only imported when extended tags (`0x80`–`0x84`) are encountered in the payload, eliminating ~80 µs of eager import overhead per decode call.
+
+---
+
+## 5. Best Practices for Maximum Throughput
+
+### 1. Reuse Encoder Instances
+
+```python
+# ✅ Recommended: Reuses internal buffers and string intern caches
+encoder = BFast()
 for batch in data_batches:
-    result = encoder.encode_packed(batch, compress=False)
+    payload = encoder.encode_packed(batch)
+
+# ❌ Avoid: Creating a new encoder per batch reallocates buffers
+for batch in data_batches:
+    payload = BFast().encode_packed(batch)
 ```
 
-**Benefits:**
-- Optimized internal state
-- Reduced memory allocations
-- Better cache utilization
-- Smaller payloads for repeated structures
+### 2. Stream Large Feeds with `BFastStreamingResponse`
 
-## Performance Characteristics
-
-### Compression Overhead
-
-| Payload Size | Without Compression | With Compression | Overhead |
-|--------------|---------------------|------------------|----------|
-| 1,000 items | 0.36ms | 0.36ms | 0ms |
-| 10,000 items | 3.92ms | 3.94ms | +0.02ms |
-| 50,000 items | 27.33ms | 27.97ms | +0.64ms |
-
-### Compression Ratio
-
-| Payload Size | Original | Compressed | Reduction |
-|--------------|----------|------------|-----------|
-| 1,000 items | 32 KB | 214 bytes | 99.3% |
-| 10,000 items | 320 KB | 1.3 KB | 99.6% |
-| 50,000 items | 1.6 MB | 6.7 KB | 99.6% |
-
-### Network Performance
-
-**100 Mbps Network (Slow):**
-- JSON: 114.3ms
-- B-FAST + LZ4: 28.3ms
-- **Speedup: 4.0x**
-
-**1 Gbps Network (Fast):**
-- JSON: 29.3ms
-- B-FAST + LZ4: 10.2ms
-- **Speedup: 2.9x**
-
-## Best Practices
-
-### 1. Choose the Right Format
+Instead of buffering gigabytes in memory, stream data incrementally with chunked framing:
 
 ```python
-# For APIs and general transfer
-result = encoder.encode_packed(data, compress=False)
+from b_fast import BFastStreamingResponse
 
-# For mobile/IoT and slow networks
-result = encoder.encode_packed(data, compress=True)
+@app.get("/telemetry")
+async def stream_telemetry():
+    async def feed():
+        for chunk in telemetry_source:
+            yield chunk
+    return BFastStreamingResponse(feed())
 ```
-
-### 2. Reuse Encoders
-
-```python
-# ✅ Good - reuse encoder
-encoder = b_fast.BFast()
-for batch in batches:
-    result = encoder.encode_packed(batch)
-
-# ❌ Avoid - creating new encoder each time
-for batch in batches:
-    encoder = b_fast.BFast()  # Inefficient
-    result = encoder.encode_packed(batch)
-```
-
-### 3. Benchmark Your Use Case
-
-```python
-import time
-
-encoder = b_fast.BFast()
-
-# Test without compression
-start = time.perf_counter()
-result1 = encoder.encode_packed(data, compress=False)
-time1 = time.perf_counter() - start
-
-# Test with compression
-start = time.perf_counter()
-result2 = encoder.encode_packed(data, compress=True)
-time2 = time.perf_counter() - start
-
-print(f"Without: {time1*1000:.2f}ms | {len(result1)} bytes")
-print(f"With:    {time2*1000:.2f}ms | {len(result2)} bytes")
-```
-
-## Technical Details
-
-B-FAST achieves its performance through:
-
-- **Native Rust implementation** - No Python interpreter overhead
-- **Direct memory access** - Reads Pydantic models without serialization
-- **Zero-copy NumPy** - Arrays transferred at memory I/O speed
-- **Efficient compression** - LZ4 with parallel processing
-- **Cache optimization** - Aligned memory and batch processing
-
-## Conclusion
-
-B-FAST's optimizations make it ideal for:
-- 📱 Mobile and IoT applications
-- 🌐 Bandwidth-constrained networks
-- 📊 Data-intensive pipelines
-- 🗜️ Storage and caching systems
-
-The automatic parallel compression and encoder reuse features ensure optimal performance without requiring manual tuning.

@@ -10,11 +10,20 @@ site_dir = "site/pt"
 
 nav = [
   { "Início" = "index.md" },
-  { "Começando" = "getting_started.md" },
-  { "Frontend" = "frontend.md" },
-  { "Performance" = "performance.md" },
-  { "Solução de Problemas" = "troubleshooting.md" },
-  { "Contribuindo" = "contributing.md" },
+  { "Guias" = [
+    { "Começando" = "getting_started.md" },
+    { "Streaming & MCP" = "streaming.md" },
+    { "Frontend (TypeScript)" = "frontend.md" },
+    { "Otimizações" = "optimizations.md" },
+  ]},
+  { "Referência" = [
+    { "Referência da API" = "api.md" },
+    { "Performance & Benchmarks" = "performance.md" },
+  ]},
+  { "Comunidade" = [
+    { "Solução de Problemas" = "troubleshooting.md" },
+    { "Contribuindo" = "contributing.md" },
+  ]},
 ]
 
 [project.theme]
