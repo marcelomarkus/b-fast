@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-09-21
+
+### 🚀 Features
+- **Streamable HTTP Protocol**: Implemented continuous binary streaming specification (`application/x-bfast-stream`) with length-prefixed framing, Little-Endian headers, and end-of-stream signaling.
+- **Rust Streaming Core**: Added high-performance state-machine based streaming decoder (`BFastStreamDecoder`) and encoder (`BFastStreamEncoder`) in Rust.
+- **FastAPI / Starlette Integration**: Added `BFastStreamingResponse` supporting sync and async generators (`Generator`, `AsyncGenerator`) over HTTP/1.1 chunked and HTTP/2/3 streams.
+- **Model Context Protocol (MCP) Support**: Added helpers for MCP Streamable HTTP transport (`wrap_mcp_tool_output`, `stream_mcp_tool_results`, `stream_mcp_async_tool_results`, `is_bfast_stream_requested`).
+- **TypeScript Streaming Client**: Added `BFastStreamDecoder` and `readBFastStream` in `bfast-client` with full support for browser `ReadableStream` and Node.js streams.
+
 ## [1.3.0] - 2026-07-02
 
 ### 🚀 Features

@@ -104,6 +104,18 @@ class User(BaseModel):
 async def get_users():
     # Returns binary B-FAST data with automatic LZ4 compression
     return [User(id=i, name=f"User {i}") for i in range(1000)]
+
+# ⚡ Streamable HTTP (Progressive Chunks)
+from b_fast import BFastStreamingResponse
+
+@app.get("/users/stream")
+async def stream_users():
+    async def user_generator():
+        for i in range(1000):
+            yield User(id=i, name=f"User {i}")
+    
+    # Streams framed chunks with Content-Type: application/x-bfast-stream
+    return BFastStreamingResponse(user_generator())
 ```
 
 #### 2. Flask
@@ -148,6 +160,7 @@ data = encoder.encode_packed(your_data, compress=True)
 
 ### Frontend (TypeScript)
 
+#### 1. Standard Response
 ```typescript
 import { BFastDecoder } from 'bfast-client';
 
@@ -158,6 +171,20 @@ async function loadData() {
     // Decodes and decompresses LZ4 automatically
     const users = BFastDecoder.decode(buffer);
     console.log(users);
+}
+```
+
+#### 2. Streamable HTTP (Progressive Stream)
+```typescript
+import { decodeReadableStream } from 'bfast-client';
+
+async function streamData() {
+    const response = await fetch('/users/stream');
+    
+    // Iterates over incoming network chunks in real-time
+    for await (const user of decodeReadableStream(response.body!)) {
+        console.log('Received user in real-time:', user);
+    }
 }
 ```
 

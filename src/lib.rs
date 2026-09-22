@@ -12,6 +12,7 @@ use std::mem;
 use std::ptr;
 
 mod errors;
+pub mod streaming;
 
 // Performance tuning constants
 const CACHE_LINE_SIZE: usize = 64;
@@ -35,13 +36,20 @@ pub struct BFast {
     key_cache: [Option<(u32, u32)>; 64],
     cache_index: usize,
     recursion_depth: usize,
+    last_was_compressed: bool,
+}
+
+impl Default for BFast {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[allow(non_local_definitions)]
 #[pymethods]
 impl BFast {
     #[new]
-    fn new() -> Self {
+    pub fn new() -> Self {
         BFast {
             string_table: AHashMap::with_capacity(1024),
             next_id: 0,
@@ -49,6 +57,7 @@ impl BFast {
             key_cache: [None; 64],
             cache_index: 0,
             recursion_depth: 0,
+            last_was_compressed: false,
         }
     }
 
@@ -85,15 +94,16 @@ impl BFast {
                     self.work_buffer.extend_from_slice(&payload);
                     self.write_header_simd(header_pos, compress);
 
-                    let final_data = if compress && self.work_buffer.len() > 256 {
+                    let (final_data, was_compressed) = if compress && self.work_buffer.len() > 256 {
                         if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
-                            self.compress_parallel()
+                            (self.compress_parallel(), true)
                         } else {
-                            compress_prepend_size(&self.work_buffer)
+                            (compress_prepend_size(&self.work_buffer), true)
                         }
                     } else {
-                        mem::take(&mut self.work_buffer)
+                        (mem::take(&mut self.work_buffer), false)
                     };
+                    self.last_was_compressed = was_compressed;
 
                     return Ok(PyBytes::new(obj.py(), &final_data).into());
                 }
@@ -108,24 +118,57 @@ impl BFast {
         self.work_buffer.extend_from_slice(&payload);
         self.write_header_simd(header_pos, compress);
 
-        let final_data = if compress && self.work_buffer.len() > 256 {
+        let (final_data, was_compressed) = if compress && self.work_buffer.len() > 256 {
             if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
-                self.compress_parallel()
+                (self.compress_parallel(), true)
             } else {
-                compress_prepend_size(&self.work_buffer)
+                (compress_prepend_size(&self.work_buffer), true)
             }
         } else {
-            mem::take(&mut self.work_buffer)
+            (mem::take(&mut self.work_buffer), false)
         };
+        self.last_was_compressed = was_compressed;
 
         Ok(PyBytes::new(obj.py(), &final_data).into())
+    }
+
+    #[pyo3(signature = (obj, *, compress = true))]
+    pub fn encode_frame(&mut self, obj: &PyAny, compress: bool) -> PyResult<PyObject> {
+        let py = obj.py();
+        let packed_obj = self.encode_packed(obj, compress)?;
+        let packed_bytes = packed_obj.extract::<&PyBytes>(py)?;
+        let data = packed_bytes.as_bytes();
+
+        let is_compressed = if self.last_was_compressed { 1u8 } else { 0u8 };
+
+        let len = data.len() as u32;
+        let mut frame = Vec::with_capacity(6 + data.len());
+        frame.extend_from_slice(&len.to_le_bytes());
+        frame.push(crate::streaming::FRAME_DATA);
+        frame.push(is_compressed);
+        frame.extend_from_slice(data);
+
+        Ok(PyBytes::new(py, &frame).into())
+    }
+
+    #[staticmethod]
+    pub fn get_stream_handshake(py: Python) -> PyResult<PyObject> {
+        Ok(PyBytes::new(py, &[0x42, 0x53, crate::streaming::STREAM_VERSION, 0x00]).into())
+    }
+
+    #[staticmethod]
+    pub fn get_eos_frame(py: Python) -> PyResult<PyObject> {
+        Ok(PyBytes::new(
+            py,
+            &[0x00, 0x00, 0x00, 0x00, crate::streaming::FRAME_EOS, 0x00],
+        )
+        .into())
     }
 
     #[pyo3(signature = (bytes, *, decompress = true))]
     pub fn decode_packed(&self, py: Python, bytes: &[u8], decompress: bool) -> PyResult<PyObject> {
         let decompressed_data = if decompress {
-            decompress_packed(bytes)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?
+            decompress_packed(bytes).map_err(pyo3::exceptions::PyValueError::new_err)?
         } else {
             Cow::Borrowed(bytes)
         };
@@ -215,7 +258,7 @@ impl BFast {
 
         let chunks: Vec<Vec<u8>> = data
             .par_chunks(CHUNK_SIZE)
-            .map(|chunk| compress_prepend_size(chunk))
+            .map(compress_prepend_size)
             .collect();
 
         let mut result = Vec::with_capacity(total_size / 2);
@@ -283,7 +326,7 @@ impl BFast {
             .collect();
 
         // Auto-detect: check if first object has complex types
-        let use_fast_mode = self.detect_simple_types(&dict, &field_names)?;
+        let use_fast_mode = self.detect_simple_types(dict, &field_names)?;
 
         self.ensure_buffer_capacity(5 + len * 50);
         self.work_buffer.push(0x60);
@@ -317,13 +360,10 @@ impl BFast {
                 }
 
                 // Check for complex types
-                if let Ok(type_name) = value.get_type().name() {
-                    match type_name {
-                        "datetime" | "date" | "time" | "UUID" | "Decimal" => {
-                            return Ok(false); // Use complex mode
-                        }
-                        _ => {}
-                    }
+                if let Ok("datetime" | "date" | "time" | "UUID" | "Decimal") =
+                    value.get_type().name()
+                {
+                    return Ok(false); // Use complex mode
                 }
             }
         }
@@ -373,7 +413,7 @@ impl BFast {
 
         if val.is_instance_of::<pyo3::types::PyLong>() {
             if let Ok(n) = val.extract::<i32>() {
-                if n >= 0 && n <= 7 {
+                if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
                     return Ok(());
                 }
@@ -384,7 +424,7 @@ impl BFast {
             }
 
             if let Ok(n) = val.extract::<i64>() {
-                if n >= 0 && n <= 7 {
+                if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
                 } else {
                     self.work_buffer.push(0x38);
@@ -465,7 +505,7 @@ impl BFast {
         // Int check (most common for IDs)
         if val.is_instance_of::<pyo3::types::PyLong>() {
             if let Ok(n) = val.extract::<i32>() {
-                if n >= 0 && n <= 7 {
+                if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
                     return Ok(());
                 }
@@ -476,7 +516,7 @@ impl BFast {
             }
 
             if let Ok(n) = val.extract::<i64>() {
-                if n >= 0 && n <= 7 {
+                if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
                 } else {
                     self.work_buffer.push(0x38);
@@ -708,7 +748,7 @@ impl BFast {
         }
 
         if let Ok(n) = val.extract::<i64>() {
-            if n >= 0 && n <= 7 {
+            if (0..=7).contains(&n) {
                 self.work_buffer.push(0x30 | (n as u8));
             } else {
                 self.work_buffer.push(0x38);
@@ -877,6 +917,8 @@ impl BFast {
 #[pymodule]
 fn _b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<BFast>()?;
+    m.add_class::<streaming::BFastStreamDecoder>()?;
+    m.add_class::<streaming::BFastStreamEncoder>()?;
     m.add(
         "BFastError",
         _py.get_type::<pyo3::exceptions::PyValueError>(),
@@ -927,7 +969,7 @@ fn decompress_packed(data: &[u8]) -> Result<Cow<'_, [u8]>, String> {
 
     let decompressed_chunks: Result<Vec<Vec<u8>>, _> = chunk_slices
         .into_par_iter()
-        .map(|chunk_data| lz4_flex::decompress_size_prepended(chunk_data))
+        .map(lz4_flex::decompress_size_prepended)
         .collect();
 
     let decompressed_chunks =
