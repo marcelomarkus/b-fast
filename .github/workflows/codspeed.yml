@@ -54,6 +54,6 @@ jobs:
           maturin develop --release
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@1d13896ef15fbc335e350f1356d4762be9bc1df9 # v3
+        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3
         with:
           run: pytest benchmarks/bench_codspeed.py --codspeed
