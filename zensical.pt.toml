@@ -1,0 +1,107 @@
+[project]
+site_url = "https://marcelomarkus.github.io/b-fast/pt/"
+site_name = "B-FAST Documentação"
+site_description = "⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Protocolo de serialização binária de altíssima performance em Rust para Python & TypeScript"
+site_author = "Marcelo Markus"
+repo_url = "https://github.com/marcelomarkus/b-fast"
+repo_name = "marcelomarkus/b-fast"
+docs_dir = "docs/pt/docs"
+site_dir = "site/pt"
+
+nav = [
+  { "Início" = "index.md" },
+  { "Começando" = "getting_started.md" },
+  { "Frontend" = "frontend.md" },
+  { "Performance" = "performance.md" },
+  { "Solução de Problemas" = "troubleshooting.md" },
+  { "Contribuindo" = "contributing.md" },
+]
+
+[project.theme]
+language = "pt"
+features = [
+  "announce.dismiss",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.expand",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "search.share",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+scheme = "default"
+primary = "teal"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Mudar para modo claro"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "Mudar para modo escuro"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "Mudar para preferência do sistema"
+
+[[project.extra.alternate]]
+name = "English"
+link = "/b-fast/"
+lang = "en"
+
+[[project.extra.alternate]]
+name = "Português"
+link = "/b-fast/pt/"
+lang = "pt"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/marcelomarkus/b-fast"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.arithmatex.generic = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}
