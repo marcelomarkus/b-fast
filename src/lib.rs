@@ -205,15 +205,13 @@ impl BFast {
                 ));
             }
             let string_bytes = &decompressed_data[offset..offset + length];
-            let string_val = std::str::from_utf8(string_bytes)
-                .map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                        "Invalid UTF-8 in string table: {}",
-                        e
-                    ))
-                })?
-                .to_string();
-            string_table.push(string_val);
+            let string_val = std::str::from_utf8(string_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in string table: {}",
+                    e
+                ))
+            })?;
+            string_table.push(PyString::new(py, string_val));
             offset += length;
         }
 
@@ -318,7 +316,8 @@ impl BFast {
         }
 
         let dict = first_item.getattr("__dict__")?.downcast::<PyDict>()?;
-        let field_names: Vec<String> = dict.keys().iter().map(|k| k.to_string()).collect();
+        let field_keys: Vec<&PyAny> = dict.keys().iter().collect();
+        let field_names: Vec<String> = field_keys.iter().map(|k| k.to_string()).collect();
 
         let field_ids: Vec<u32> = field_names
             .iter()
@@ -326,7 +325,7 @@ impl BFast {
             .collect();
 
         // Auto-detect: check if first object has complex types
-        let use_fast_mode = self.detect_simple_types(dict, &field_names)?;
+        let use_fast_mode = self.detect_simple_types(dict, &field_keys)?;
 
         self.ensure_buffer_capacity(5 + len * 50);
         self.work_buffer.push(0x60);
@@ -337,12 +336,12 @@ impl BFast {
         if use_fast_mode {
             // Fast path: simple types only (int, str, float, bool)
             for item in list.iter() {
-                self.serialize_pydantic_fast(item, &field_names, &field_ids)?;
+                self.serialize_pydantic_fast(item, &field_keys, &field_ids)?;
             }
         } else {
             // Complex path: handles datetime, UUID, Decimal, etc.
             for item in list.iter() {
-                self.serialize_pydantic_complex(item, &field_names, &field_ids)?;
+                self.serialize_pydantic_complex(item, &field_keys, &field_ids)?;
             }
         }
 
@@ -351,10 +350,10 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn detect_simple_types(&self, dict: &PyDict, field_names: &[String]) -> PyResult<bool> {
+    fn detect_simple_types(&self, dict: &PyDict, field_keys: &[&PyAny]) -> PyResult<bool> {
         // Check first object's field types
-        for field_name in field_names {
-            if let Some(value) = dict.get_item(field_name)? {
+        for key in field_keys {
+            if let Some(value) = dict.get_item(key)? {
                 if value.is_none() {
                     continue;
                 }
@@ -374,7 +373,7 @@ impl BFast {
     fn serialize_pydantic_fast(
         &mut self,
         obj: &PyAny,
-        field_names: &[String],
+        field_keys: &[&PyAny],
         field_ids: &[u32],
     ) -> PyResult<()> {
         self.work_buffer.push(0x70);
@@ -382,11 +381,11 @@ impl BFast {
         let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
 
         // Fast path: direct iteration for simple types
-        for (i, field_name) in field_names.iter().enumerate() {
+        for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
                 .extend_from_slice(&field_ids[i].to_le_bytes());
 
-            if let Some(value) = dict.get_item(field_name)? {
+            if let Some(value) = dict.get_item(key)? {
                 self.serialize_value_fast(value)?;
             } else {
                 self.work_buffer.push(0x10);
@@ -453,7 +452,20 @@ impl BFast {
             return Ok(());
         }
 
-        // Fallback: handle lists, dicts, and complex types properly
+        // Fast path for list in serialize_value_fast
+        if let Ok(list) = val.downcast::<PyList>() {
+            self.work_buffer.push(0x60);
+            let len = list.len();
+            self.work_buffer
+                .extend_from_slice(&(len as u32).to_le_bytes());
+
+            for item in list.iter() {
+                self.serialize_value_fast(item)?;
+            }
+            return Ok(());
+        }
+
+        // Fallback: handle dicts and complex types properly
         self.serialize_any_optimized(val)
     }
 
@@ -461,7 +473,7 @@ impl BFast {
     fn serialize_pydantic_complex(
         &mut self,
         obj: &PyAny,
-        field_names: &[String],
+        field_keys: &[&PyAny],
         field_ids: &[u32],
     ) -> PyResult<()> {
         // Complex path: handles all types including datetime, UUID, Decimal
@@ -469,11 +481,11 @@ impl BFast {
 
         let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
 
-        for (i, field_name) in field_names.iter().enumerate() {
+        for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
                 .extend_from_slice(&field_ids[i].to_le_bytes());
 
-            if let Some(value) = dict.get_item(field_name)? {
+            if let Some(value) = dict.get_item(key)? {
                 self.serialize_value_ultra_fast(value)?;
             } else {
                 self.work_buffer.push(0x10);
@@ -975,7 +987,7 @@ struct BFastParser<'a, 'py> {
     py: Python<'py>,
     data: &'a [u8],
     offset: usize,
-    string_table: &'a [String],
+    string_table: &'a [&'py PyString],
     datetime_class: &'py PyAny,
     date_class: &'py PyAny,
     time_class: &'py PyAny,
@@ -1102,7 +1114,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     )));
                 }
 
-                let key = &self.string_table[key_id];
+                let key = self.string_table[key_id];
                 let value = self.parse()?;
                 dict.set_item(key, value)?;
             }
