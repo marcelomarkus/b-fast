@@ -6,8 +6,10 @@ on:
       - main
     paths:
       - 'docs/**'
-      - 'mkdocs.yml'
+      - 'zensical.toml'
+      - 'zensical.pt.toml'
       - 'README.md'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -33,16 +35,19 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mkdocs-material mkdocstrings[python]
+          pip install zensical
 
       - name: Setup Pages
-        uses: actions/configure-pages@1f0c5cde4bc74cd7e1254d0cb4de8d49e9068c7d # v4
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Build documentation
-        run: mkdocs build --clean
+        run: |
+          zensical build -f zensical.toml --clean
+          rm -rf site/pt
+          zensical build -f zensical.pt.toml
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda996908d67 # v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: ./site
 

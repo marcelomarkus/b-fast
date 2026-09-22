@@ -80,5 +80,4 @@ module-name = "b_fast._b_fast"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["python"]
 
