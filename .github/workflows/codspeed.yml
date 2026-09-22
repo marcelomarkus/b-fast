@@ -4,56 +4,43 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'src/**'
-      - 'python/**'
-      - 'benchmarks/**'
-      - 'Cargo.toml'
-      - 'pyproject.toml'
-      - '.github/workflows/codspeed.yml'
   pull_request:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'python/**'
-      - 'benchmarks/**'
-      - 'Cargo.toml'
-      - 'pyproject.toml'
-      - '.github/workflows/codspeed.yml'
+  # `workflow_dispatch` allows CodSpeed to trigger backtest
+  # performance analysis in order to generate initial data.
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write # for OpenID Connect authentication with CodSpeed
 
 jobs:
   benchmarks:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: '3.11'
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.11'
-
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          source $HOME/.cargo/env
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Install dependencies and build extension
-        run: |
-          source $HOME/.cargo/env
-          python -m pip install --upgrade pip
-          pip install maturin pytest-codspeed pydantic numpy lz4
-          maturin develop --release
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Build extension and install benchmark dependencies
+        run: uv sync --locked --group dev
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3
+        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea # v5
         with:
-          run: pytest benchmarks/bench_codspeed.py --codspeed
+          mode: simulation
+          run: uv run --no-sync pytest benchmarks/bench_codspeed.py benchmarks/bench_streaming.py benchmarks/bench_types.py --codspeed
