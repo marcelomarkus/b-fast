@@ -14,6 +14,7 @@ nav = [
   { "Frontend" = "frontend.md" },
   { "Performance" = "performance.md" },
   { "Solução de Problemas" = "troubleshooting.md" },
+  { "Contribuindo" = "contributing.md" },
 ]
 
 [project.theme]
