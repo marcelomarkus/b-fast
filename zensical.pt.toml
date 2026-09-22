@@ -1,21 +1,23 @@
 [project]
-site_url = "https://marcelomarkus.github.io/b-fast/"
-site_name = "B-FAST Documentation"
-site_description = "⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Ultra-high performance binary serialization protocol in Rust for Python & TypeScript"
+site_url = "https://marcelomarkus.github.io/b-fast/pt/"
+site_name = "B-FAST Documentação"
+site_description = "⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Protocolo de serialização binária de altíssima performance em Rust para Python & TypeScript"
 site_author = "Marcelo Markus"
 repo_url = "https://github.com/marcelomarkus/b-fast"
 repo_name = "marcelomarkus/b-fast"
+docs_dir = "docs/pt/docs"
+site_dir = "site/pt"
 
 nav = [
-  { "Home" = "index.md" },
-  { "Getting Started" = "getting_started.md" },
+  { "Início" = "index.md" },
+  { "Começando" = "getting_started.md" },
   { "Frontend" = "frontend.md" },
   { "Performance" = "performance.md" },
-  { "Troubleshooting" = "troubleshooting.md" },
+  { "Solução de Problemas" = "troubleshooting.md" },
 ]
 
 [project.theme]
-language = "en"
+language = "pt"
 features = [
   "announce.dismiss",
   "content.code.annotate",
@@ -43,21 +45,21 @@ media = "(prefers-color-scheme)"
 scheme = "default"
 primary = "teal"
 toggle.icon = "lucide/sun-moon"
-toggle.name = "Switch to light mode"
+toggle.name = "Mudar para modo claro"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: light)"
 scheme = "default"
 primary = "teal"
 toggle.icon = "lucide/sun"
-toggle.name = "Switch to dark mode"
+toggle.name = "Mudar para modo escuro"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: dark)"
 scheme = "slate"
 primary = "teal"
 toggle.icon = "lucide/moon"
-toggle.name = "Switch to system preference"
+toggle.name = "Mudar para preferência do sistema"
 
 [[project.extra.alternate]]
 name = "English"
