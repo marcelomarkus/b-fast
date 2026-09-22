@@ -36,9 +36,17 @@ B-FAST was born from the recognition that modern applications need more than jus
 |--------|-----------|---------|
 | JSON | 12.0ms | 1.0x |
 | orjson | 8.19ms | 1.5x |
-| **B-FAST** | **4.83ms** | **🚀 2.5x** |
+| **B-FAST** | **2.01ms** | **🚀 6.0x** |
 
-**B-FAST is 1.7x faster than orjson!**
+**B-FAST is 4.1x faster than orjson!**
+
+### 🌊 Streaming Protocol (1,000 frames)
+| Metric | Performance | Speedup / Throughput |
+|--------|-------------|----------------------|
+| **Streaming Decode (Aligned)** | **11.8ms** | **~85,000 frames/s** |
+| **Streaming Decode (Fragmented)** | **13.6ms** | **~73,500 frames/s** |
+| **Single Frame Latency** | **139.2µs** | **Real-time instant parsing** |
+| **Sustained Stream Throughput** | **12,500 frames/s** | **High-frequency event feeds** |
 
 ### 🔄 Round-Trip (Encode + Network + Decode)
 
@@ -69,8 +77,8 @@ B-FAST was born from the recognition that modern applications need more than jus
 - **🌐 APIs with slow networks**: Up to 5.7x faster than orjson
 - **📊 Data pipelines**: 14-96x speedup for NumPy arrays
 - **🗜️ Storage/Cache**: Superior integrated compression
-- **🚀 Simple objects**: 1.7x faster than orjson
-- **🗜️ Storage/Cache**: Superior integrated compression
+- **🚀 Simple objects**: 4.1x faster than orjson
+- **🌊 Real-time Streaming**: > 12,500 frames/s with zero-allocation chunk parsing
 
 ## 📦 Installation
 

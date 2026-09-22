@@ -134,6 +134,15 @@ B-FAST is built on the principle of open knowledge sharing. Every contribution, 
 - **Types:** Strict TypeScript, avoid `any` in public APIs
 - **Compatibility:** ES2020+ for modern environments
 
+### 🏷️ Versioning (Single Source of Truth)
+- The project version is defined strictly in `Cargo.toml` (`[package].version`).
+- `pyproject.toml` uses `dynamic = ["version"]` and derives the Python wheel version automatically via Maturin.
+- The Python runtime version `b_fast.__version__` is exposed directly by the compiled Rust extension via `env!("CARGO_PKG_VERSION")`.
+- To sync the version to `client-ts/package.json`, run:
+  ```bash
+  cd client-ts && npm run sync-version
+  ```
+
 ## 🧪 Testing Guidelines
 
 ### Test Categories

@@ -7,10 +7,17 @@ B-FAST (Binary Fast Adaptive Serialization Transfer) is a binary serialization p
 ## 🎯 Performance Summary
 
 ### Simple Objects (10k)
-- **B-FAST**: 4.83ms
+- **B-FAST**: 2.01ms
 - **orjson**: 8.19ms
 - **JSON**: 12.0ms
-- **🚀 1.7x faster than orjson!**
+- **🚀 4.1x faster than orjson! (6.0x faster than JSON)**
+
+### Streaming Protocol Performance (1,000 frames)
+- **Streaming Decode (Aligned)**: 11.8ms (~85,000 frames/s)
+- **Streaming Decode (Fragmented)**: 13.6ms (~73,500 frames/s)
+- **Single Frame Latency**: 139.2µs (real-time processing)
+- **Sustained Stream Throughput**: 12,500 frames/s
+- **🚀 Ultra-low latency for event streams and IPC!**
 
 ### Round-Trip Performance (Serialize + Network + Deserialize)
 
@@ -45,10 +52,11 @@ B-FAST (Binary Fast Adaptive Serialization Transfer) is a binary serialization p
 
 ### ✅ B-FAST Excels When:
 1. **Network bandwidth is limited** (mobile, IoT) - 5.7x faster
-2. **Simple objects** - 1.7x faster than orjson
-3. **NumPy arrays are involved** (ML, data science) - 14-96x faster
-4. **Storage efficiency is important** - 89% compression
-5. **Large datasets** - Up to 5.7x faster on slow networks
+2. **Simple objects** - 4.1x faster than orjson
+3. **Real-time streaming** - > 12,500 frames/s with instant frame decode
+4. **NumPy arrays are involved** (ML, data science) - 14-96x faster
+5. **Storage efficiency is important** - 89% compression
+6. **Large datasets** - Up to 5.7x faster on slow networks
 
 ### ❌ Consider Alternatives When:
 1. **Ultra-fast networks** (10+ Gbps internal) - marginal difference

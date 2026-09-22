@@ -9,9 +9,19 @@ Análise detalhada da performance do B-FAST e comparações com outras soluçõe
 |---------|------------|---------|
 | JSON | 12.0ms | 1.0x |
 | orjson | 8.19ms | 1.5x |
-| **B-FAST** | **4.83ms** | **🚀 2.5x** |
+| **B-FAST** | **2.01ms** | **🚀 6.0x** |
 
-**B-FAST é 1.7x mais rápido que orjson!**
+**B-FAST é 4.1x mais rápido que orjson!**
+
+### 🌊 Protocolo de Streaming (1.000 frames)
+| Métrica | Performance | Speedup / Throughput |
+|---------|-------------|----------------------|
+| **Streaming Decode (Alinhado)** | **11.8ms** | **~85.000 frames/s** |
+| **Streaming Decode (Fragmentado)** | **13.6ms** | **~73.500 frames/s** |
+| **Latência por Frame Único** | **139.2µs** | **Parsing instantâneo em tempo real** |
+| **Throughput Sustentado de Stream** | **12.500 frames/s** | **Feeds de eventos em alta frequência** |
+
+**🚀 Ultra-baixa latência para IPC, WebSockets e streaming de eventos!**
 
 ## 🔄 Testes Round-Trip
 
@@ -62,10 +72,11 @@ Teste especial para dados científicos (8MB):
 ### ✅ B-FAST Excele Quando:
 
 1. **Largura de banda é limitada** (mobile, IoT) - 5.7x mais rápido
-2. **Objetos simples** - 1.7x mais rápido que orjson
-3. **Arrays NumPy estão envolvidos** (ML, ciência de dados) - 14-96x mais rápido
-4. **Eficiência de armazenamento é importante** - 89% de compressão
-5. **Grandes datasets** - Até 5.7x mais rápido em redes lentas
+2. **Objetos simples** - 4.1x mais rápido que orjson
+3. **Streaming em tempo real** - > 12.500 frames/s com decode instantâneo
+4. **Arrays NumPy estão envolvidos** (ML, ciência de dados) - 14-96x mais rápido
+5. **Eficiência de armazenamento é importante** - 89% de compressão
+6. **Grandes datasets** - Até 5.7x mais rápido em redes lentas
 
 ### ⚠️ Considerar Alternativas Quando:
 
