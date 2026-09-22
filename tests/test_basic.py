@@ -32,7 +32,6 @@ def test_pydantic_batch_nested_structures():
     assert decoded[0]["metadata"] == {"key": "val_0"}
 
 
-
 def test_basic_encoding():
     """Test basic B-FAST encoding functionality."""
     encoder = b_fast.BFast()
