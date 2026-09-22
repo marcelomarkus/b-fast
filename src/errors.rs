@@ -14,6 +14,14 @@ pub enum BFastError {
     UnexpectedEOF(usize),
     #[error("String too long for header: {0} (max 255 bytes)")]
     StringTooLong(String),
+    #[error("Invalid stream magic: expected 'BS'")]
+    InvalidStreamMagic,
+    #[error("Unsupported stream version: {0}")]
+    UnsupportedStreamVersion(u8),
+    #[error("Frame size {0} exceeds maximum allowed {1}")]
+    FrameSizeExceeded(usize, usize),
+    #[error("Unknown frame type: 0x{0:02x}")]
+    UnknownFrameType(u8),
 }
 
 impl From<BFastError> for PyErr {

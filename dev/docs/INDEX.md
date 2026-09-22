@@ -22,6 +22,7 @@
 - **[OPTIMIZATIONS.md](OPTIMIZATIONS.md)** - Documentação técnica detalhada
 - **[docs/GIL_ANALYSIS.md](docs/GIL_ANALYSIS.md)** - Análise profunda do GIL e suas limitações
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Diagramas e arquitetura do sistema
+- **[STREAMING_SPECIFICATION.md](STREAMING_SPECIFICATION.md)** - Especificação do protocolo B-FAST Streamable HTTP
 
 ---
 
@@ -172,7 +173,7 @@ data = encoder.encode_packed(users, compress=True)
 
 ### Médio Prazo
 - [ ] Decoder TypeScript para formato rkyv
-- [ ] Suporte a streaming (chunks progressivos)
+- [x] Suporte a streaming (chunks progressivos e Streamable HTTP)
 - [ ] Compressão adaptativa
 
 ### Longo Prazo

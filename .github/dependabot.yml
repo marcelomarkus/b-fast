@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Mantém as GitHub Actions atualizadas (incluindo os SHAs de commit que fixamos)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Mantém dependências do Rust (Cargo.toml) atualizadas
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Mantém dependências do TypeScript (client-ts/package.json) atualizadas
+  - package-ecosystem: "npm"
+    directory: "/client-ts"
+    schedule:
+      interval: "weekly"

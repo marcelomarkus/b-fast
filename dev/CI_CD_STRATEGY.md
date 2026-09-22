@@ -211,3 +211,43 @@ Adicionar ao README.md:
 - **Testes flaky não bloqueiam**: Integração Python↔TypeScript
 - **Deploy automático**: Tag → Testes → PyPI + NPM
 - **Rollback fácil**: Deletar tag e criar nova versão
+
+## 🚀 Futuras Otimizações e Melhorias (Backlog)
+
+Estas melhorias foram mapeadas e estão salvas para avaliação futura:
+
+### 1. Otimizações de Compilação no Rust (`Cargo.toml`)
+Adicionar o bloco a seguir ao final do `Cargo.toml` para otimizar agressivamente o tamanho e a performance das wheels compiladas de produção:
+```toml
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+```
+
+### 2. Suporte Híbrido (Dual-Module) no TypeScript (ESM e CommonJS)
+Configurar a compilação do cliente TypeScript para gerar tanto CommonJS (`.js`) quanto ES Modules (`.mjs`) usando ferramentas como o `tsup` ou tsconfigs dedicados, e configurar a chave `"exports"` no `package.json`:
+```json
+"exports": {
+  ".": {
+    "import": "./dist/index.mjs",
+    "require": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  }
+}
+```
+
+### 3. Automação de GitHub Releases (`release.yml`)
+Adicionar uma etapa no final do workflow de deploy para criar automaticamente uma GitHub Release com as notas de versão geradas pelo GitHub e anexar os binários gerados em `dist/*` como assets:
+```yaml
+- name: Create GitHub Release
+  uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.0
+  with:
+    files: |
+      dist/*
+    generate_release_notes: true
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```

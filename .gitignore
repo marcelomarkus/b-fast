@@ -6,6 +6,7 @@ Cargo.lock
 __pycache__/
 .venv/
 *.pyc
+*.so
 .mypy_cache/
 .pytest_cache/
 dist/

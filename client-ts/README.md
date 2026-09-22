@@ -91,6 +91,23 @@ const { data } = await axios.get('/api/users');
 console.log(data); // Already decoded
 ```
 
+### ⚡ Streamable HTTP (Progressive Chunks)
+
+Stream data in real-time as chunks arrive from FastAPI `BFastStreamingResponse`:
+
+```typescript
+import { decodeReadableStream } from 'bfast-client';
+
+async function streamData() {
+    const response = await fetch('/api/users/stream');
+    
+    // Reads chunks progressivelly from the network without blocking
+    for await (const user of decodeReadableStream(response.body!)) {
+        console.log('Progressive item:', user);
+    }
+}
+```
+
 ## Supported Types
 
 - **Primitives**: `null`, `boolean`, `number`, `string`
