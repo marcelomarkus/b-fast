@@ -1,18 +1,21 @@
 #!/bin/bash
 
-# Script para build e deploy da documentação multilíngue
+# Script para build e deploy da documentação multilíngue com Zensical
+
+set -e
 
 echo "🌐 Building B-FAST multilingual documentation..."
 
 # Build versão inglês (principal)
 echo "📖 Building English version..."
-mkdocs build --clean
+zensical build -f zensical.toml --clean
+
+# Limpar resíduo em site/pt caso docs/pt tenha sido copiado pelo build raiz
+rm -rf site/pt
 
 # Build versão português
 echo "📖 Building Portuguese version..."
-cd docs/pt
-mkdocs build --config-file mkdocs.yml --site-dir ../../site/pt
-cd ../..
+zensical build -f zensical.pt.toml
 
 echo "✅ Documentation built successfully!"
 echo "📁 English: site/"
@@ -23,5 +26,5 @@ if [ "$1" = "--serve" ]; then
     echo "🚀 Serving documentation at http://localhost:8000"
     echo "🌐 English: http://localhost:8000"
     echo "🌐 Português: http://localhost:8000/pt/"
-    cd site && python -m http.server 8000
+    cd site && python3 -m http.server 8000
 fi
