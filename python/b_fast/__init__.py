@@ -19,6 +19,7 @@ try:
 except (ImportError, AttributeError):
     try:
         from importlib.metadata import version as _version
+
         __version__ = _version("bfast-py")
     except Exception:
         __version__ = "unknown"

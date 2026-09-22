@@ -5,7 +5,6 @@ Generates benchmark_chart.png with updated 6-panel performance results including
 """
 
 import matplotlib.pyplot as plt
-import numpy as np
 
 
 def generate_chart():
@@ -35,10 +34,10 @@ def generate_chart():
 
     # Color palette
     c_bfast_lz4 = "#047857"  # Deep Emerald
-    c_bfast = "#10B981"      # Emerald
+    c_bfast = "#10B981"  # Emerald
     c_bfast_alt = "#14B8A6"  # Teal
-    c_orjson = "#3B82F6"     # Blue
-    c_json = "#EF4444"       # Red
+    c_orjson = "#3B82F6"  # Blue
+    c_json = "#EF4444"  # Red
 
     # -------------------------------------------------------------------------
     # 1. Simple Objects (10,000) - Encoding Speed
@@ -48,13 +47,25 @@ def generate_chart():
     colors1 = [c_bfast, c_orjson, c_json]
 
     bars1 = ax1.bar(
-        categories1, times1, color=colors1, width=0.55, edgecolor="#1F2937", linewidth=1.2, zorder=3
+        categories1,
+        times1,
+        color=colors1,
+        width=0.55,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
     )
     ax1.set_facecolor("#FFFFFF")
     ax1.grid(True, axis="y", zorder=0)
-    ax1.set_ylabel("Time (ms) - Lower is better", fontsize=11, fontweight="bold", color="#374151")
+    ax1.set_ylabel(
+        "Time (ms) - Lower is better", fontsize=11, fontweight="bold", color="#374151"
+    )
     ax1.set_title(
-        "Simple Objects (10,000) - Encoding Speed", fontsize=13, fontweight="bold", color="#111827", pad=12
+        "Simple Objects (10,000) - Encoding Speed",
+        fontsize=13,
+        fontweight="bold",
+        color="#111827",
+        pad=12,
     )
     ax1.set_ylim(0, max(times1) * 1.35)
 
@@ -81,7 +92,12 @@ def generate_chart():
                 fontsize=9.5,
                 color="#065F46",
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#D1FAE5", edgecolor="#10B981", alpha=0.9),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "#D1FAE5",
+                    "edgecolor": "#10B981",
+                    "alpha": 0.9,
+                },
             )
 
     # -------------------------------------------------------------------------
@@ -92,14 +108,29 @@ def generate_chart():
     colors2 = [c_bfast, c_orjson, c_json]
 
     bars2 = ax2.bar(
-        categories2, times2, color=colors2, width=0.55, edgecolor="#1F2937", linewidth=1.2, zorder=3
+        categories2,
+        times2,
+        color=colors2,
+        width=0.55,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
     )
     ax2.set_facecolor("#FFFFFF")
     ax2.set_yscale("log")
     ax2.grid(True, axis="y", which="both", zorder=0)
-    ax2.set_ylabel("Time (ms, log scale) - Lower is better", fontsize=11, fontweight="bold", color="#374151")
+    ax2.set_ylabel(
+        "Time (ms, log scale) - Lower is better",
+        fontsize=11,
+        fontweight="bold",
+        color="#374151",
+    )
     ax2.set_title(
-        "NumPy Array (8 MB) - Zero-Copy Speed", fontsize=13, fontweight="bold", color="#111827", pad=12
+        "NumPy Array (8 MB) - Zero-Copy Speed",
+        fontsize=13,
+        fontweight="bold",
+        color="#111827",
+        pad=12,
     )
     ax2.set_ylim(1, 1000)
 
@@ -126,7 +157,12 @@ def generate_chart():
                 fontsize=9.5,
                 color="#065F46",
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#D1FAE5", edgecolor="#10B981", alpha=0.9),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "#D1FAE5",
+                    "edgecolor": "#10B981",
+                    "alpha": 0.9,
+                },
             )
 
     # -------------------------------------------------------------------------
@@ -137,13 +173,28 @@ def generate_chart():
     colors3 = [c_bfast_lz4, c_bfast, c_orjson, c_json]
 
     bars3 = ax3.bar(
-        categories3, sizes3, color=colors3, width=0.6, edgecolor="#1F2937", linewidth=1.2, zorder=3
+        categories3,
+        sizes3,
+        color=colors3,
+        width=0.6,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
     )
     ax3.set_facecolor("#FFFFFF")
     ax3.grid(True, axis="y", zorder=0)
-    ax3.set_ylabel("Payload Size (MB) - Lower is better", fontsize=11, fontweight="bold", color="#374151")
+    ax3.set_ylabel(
+        "Payload Size (MB) - Lower is better",
+        fontsize=11,
+        fontweight="bold",
+        color="#374151",
+    )
     ax3.set_title(
-        "Payload Size (100,000 Large Objects)", fontsize=13, fontweight="bold", color="#111827", pad=12
+        "Payload Size (100,000 Large Objects)",
+        fontsize=13,
+        fontweight="bold",
+        color="#111827",
+        pad=12,
     )
     ax3.set_ylim(0, max(sizes3) * 1.35)
 
@@ -170,7 +221,12 @@ def generate_chart():
                 fontsize=9.5,
                 color="#065F46",
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#D1FAE5", edgecolor="#047857", alpha=0.9),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "#D1FAE5",
+                    "edgecolor": "#047857",
+                    "alpha": 0.9,
+                },
             )
 
     # -------------------------------------------------------------------------
@@ -181,13 +237,28 @@ def generate_chart():
     colors4 = [c_bfast_lz4, c_orjson, c_json]
 
     bars4 = ax4.bar(
-        categories4, times4, color=colors4, width=0.55, edgecolor="#1F2937", linewidth=1.2, zorder=3
+        categories4,
+        times4,
+        color=colors4,
+        width=0.55,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
     )
     ax4.set_facecolor("#FFFFFF")
     ax4.grid(True, axis="y", zorder=0)
-    ax4.set_ylabel("Total Time (ms) - Lower is better", fontsize=11, fontweight="bold", color="#374151")
+    ax4.set_ylabel(
+        "Total Time (ms) - Lower is better",
+        fontsize=11,
+        fontweight="bold",
+        color="#374151",
+    )
     ax4.set_title(
-        "Round-Trip 100k Objects - 100 Mbps Network", fontsize=13, fontweight="bold", color="#111827", pad=12
+        "Round-Trip 100k Objects - 100 Mbps Network",
+        fontsize=13,
+        fontweight="bold",
+        color="#111827",
+        pad=12,
     )
     ax4.set_ylim(0, max(times4) * 1.35)
 
@@ -214,7 +285,12 @@ def generate_chart():
                 fontsize=9.5,
                 color="#065F46",
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#D1FAE5", edgecolor="#047857", alpha=0.9),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "#D1FAE5",
+                    "edgecolor": "#047857",
+                    "alpha": 0.9,
+                },
             )
 
     # -------------------------------------------------------------------------
@@ -225,13 +301,25 @@ def generate_chart():
     colors5 = [c_bfast, c_bfast_alt, c_json]
 
     bars5 = ax5.bar(
-        categories5, times5, color=colors5, width=0.55, edgecolor="#1F2937", linewidth=1.2, zorder=3
+        categories5,
+        times5,
+        color=colors5,
+        width=0.55,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
     )
     ax5.set_facecolor("#FFFFFF")
     ax5.grid(True, axis="y", zorder=0)
-    ax5.set_ylabel("Time (ms) - Lower is better", fontsize=11, fontweight="bold", color="#374151")
+    ax5.set_ylabel(
+        "Time (ms) - Lower is better", fontsize=11, fontweight="bold", color="#374151"
+    )
     ax5.set_title(
-        "Streaming Protocol (1,000 Frames) - Decode Time", fontsize=13, fontweight="bold", color="#111827", pad=12
+        "Streaming Protocol (1,000 Frames) - Decode Time",
+        fontsize=13,
+        fontweight="bold",
+        color="#111827",
+        pad=12,
     )
     ax5.set_ylim(0, max(times5) * 1.35)
 
@@ -258,7 +346,12 @@ def generate_chart():
                 fontsize=9.5,
                 color="#065F46",
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#D1FAE5", edgecolor="#10B981", alpha=0.9),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "#D1FAE5",
+                    "edgecolor": "#10B981",
+                    "alpha": 0.9,
+                },
             )
 
     # -------------------------------------------------------------------------
@@ -269,13 +362,28 @@ def generate_chart():
     colors6 = [c_bfast, c_bfast_alt, c_json]
 
     bars6 = ax6.bar(
-        categories6, throughput6, color=colors6, width=0.55, edgecolor="#1F2937", linewidth=1.2, zorder=3
+        categories6,
+        throughput6,
+        color=colors6,
+        width=0.55,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
     )
     ax6.set_facecolor("#FFFFFF")
     ax6.grid(True, axis="y", zorder=0)
-    ax6.set_ylabel("Frames / Second - Higher is better", fontsize=11, fontweight="bold", color="#374151")
+    ax6.set_ylabel(
+        "Frames / Second - Higher is better",
+        fontsize=11,
+        fontweight="bold",
+        color="#374151",
+    )
     ax6.set_title(
-        "Streaming Throughput (Frames / Sec)", fontsize=13, fontweight="bold", color="#111827", pad=12
+        "Streaming Throughput (Frames / Sec)",
+        fontsize=13,
+        fontweight="bold",
+        color="#111827",
+        pad=12,
     )
     ax6.set_ylim(0, max(throughput6) * 1.35)
 
@@ -302,12 +410,19 @@ def generate_chart():
                 fontsize=9.5,
                 color="#065F46",
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#D1FAE5", edgecolor="#10B981", alpha=0.9),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "#D1FAE5",
+                    "edgecolor": "#10B981",
+                    "alpha": 0.9,
+                },
             )
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig("benchmark_chart.png", dpi=180, bbox_inches="tight")
-    print("✅ benchmark_chart.png successfully generated with 6 panels including Streaming!")
+    print(
+        "✅ benchmark_chart.png successfully generated with 6 panels including Streaming!"
+    )
 
 
 if __name__ == "__main__":
