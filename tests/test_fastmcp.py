@@ -1,6 +1,9 @@
-import mcp.types as types
 import pytest
-from fastmcp import FastMCP
+
+mcp = pytest.importorskip("mcp")
+types = pytest.importorskip("mcp.types")
+fastmcp_mod = pytest.importorskip("fastmcp")
+FastMCP = fastmcp_mod.FastMCP
 
 from b_fast._b_fast import BFastError
 from b_fast.fastmcp import (

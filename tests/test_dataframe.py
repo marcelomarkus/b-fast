@@ -2,9 +2,10 @@
 Tests for B-FAST DataFrame integration with Polars, Pandas, and PyArrow.
 """
 
-import pandas as pd
-import polars as pl
 import pytest
+
+pd = pytest.importorskip("pandas")
+pl = pytest.importorskip("polars")
 
 from b_fast import BFast, decode_dataframe, encode_dataframe
 

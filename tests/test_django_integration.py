@@ -2,7 +2,11 @@
 Tests for B-FAST Django and Django Ninja integrations.
 """
 
-import polars as pl
+import pytest
+
+django = pytest.importorskip("django")
+ninja = pytest.importorskip("ninja")
+pl = pytest.importorskip("polars")
 from ninja import NinjaAPI
 from ninja.testing import TestClient
 

@@ -41,7 +41,7 @@ jobs:
       run: pip install dist/*.whl
     
     - name: Install test dependencies
-      run: pip install pytest pydantic numpy fastapi httpx anyio
+      run: pip install ".[all]" pytest httpx anyio
     
     - name: Run Python tests
       run: |
