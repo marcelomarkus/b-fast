@@ -39,13 +39,15 @@ for batch in data_batches:
 
 #### Unsupported Data Types
 B-FAST currently supports:
-- ✅ Pydantic models
-- ✅ Basic Python types (int, str, bool, float, None)
-- ✅ Lists and dictionaries
-- ✅ NumPy arrays (float64)
-- ❌ Custom classes (without Pydantic)
-- ❌ Complex numbers
-- ❌ Datetime objects (convert to timestamp first)
+- ✅ Basic Python types (`int`, `str`, `bool`, `float`, `bytes`, `None`)
+- ✅ Collections (`list`, `tuple`, `set`, `dict`)
+- ✅ Pydantic models (v1 and v2)
+- ✅ `datetime`, `date`, and `time` (via ISO 8601 type preservation)
+- ✅ `UUID` and `Decimal`
+- ✅ DataFrames & Series: Polars, Pandas, and PyArrow tables
+- ✅ NumPy arrays (`float64`, etc.)
+- ❌ Arbitrary custom classes without dict or attribute access
+- ❌ Complex numbers (`complex`)
 
 #### TypeScript Client Issues
 ```typescript
@@ -115,11 +117,11 @@ When reporting issues, please include:
 ### Q: Why is B-FAST slower than orjson for simple data?
 A: B-FAST is optimized for bandwidth-constrained scenarios and complex data structures. For simple data on fast networks, orjson may be faster.
 
-### Q: Can I use B-FAST with Django/Flask?
-A: Yes! B-FAST works with any Python web framework. Create a custom response class that uses B-FAST encoding.
+### Q: Can I use B-FAST with Django or Django Ninja?
+A: Yes! B-FAST includes native integrations: `BFastRenderer` for Django Ninja and `BFastHttpResponse` / `BFastStreamingHttpResponse` for standard Django.
 
-### Q: Is there a decoder for Python?
-A: The decoder is currently in development. The TypeScript client includes a full decoder implementation.
+### Q: How do I decode B-FAST payloads in Python?
+A: Use `encoder.decode_packed(binary_data)` to deserialize payloads back into Python native structures.
 
 ### Q: How does compression work?
-A: B-FAST uses built-in LZ4 compression which is extremely fast (0.32ms decompress for 252KB). No external dependencies required.
+A: B-FAST includes built-in LZ4 compression. Pass `compress=True` to significantly reduce network payload sizes without external dependencies.

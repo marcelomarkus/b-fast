@@ -1,6 +1,10 @@
-# 🌐 Frontend - Integração TypeScript
+# 🌐 Frontend TypeScript - Consumindo e Produzindo B-FAST
 
-Guia completo para integrar B-FAST em aplicações frontend modernas.
+O pacote [`bfast-client`](https://www.npmjs.com/package/bfast-client) é a biblioteca ultra-rápida de serialização, streaming e decodificação binária para JavaScript e TypeScript.
+
+Suporta **Dual-Module (ESM e CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno** e **Cloudflare Workers** com **compressão LZ4 transparente e zero-config**.
+
+---
 
 ## 📦 Instalação
 
@@ -8,381 +12,262 @@ Guia completo para integrar B-FAST em aplicações frontend modernas.
 npm install bfast-client
 ```
 
-## 🛠️ Configuração Básica
+---
 
-### Importação
+## ⚡ Início Rápido: `bfastFetch`
 
-```typescript
-import { BFastDecoder } from 'bfast-client';
-```
-
-### Decodificação Simples
+A maneira mais rápida e ergonômica de se comunicar com endpoints B-FAST:
 
 ```typescript
-async function fetchData() {
-    const response = await fetch('/api/data');
-    const buffer = await response.arrayBuffer();
-    
-    const data = BFastDecoder.decode(buffer);
-    return data;
-}
-```
-
-### Streaming HTTP em Tempo Real (Streamable HTTP) 🌊
-
-Consuma streams contínuos enviados por `BFastStreamingResponse` ou servidores MCP usando `readBFastStream`:
-
-```typescript
-import { readBFastStream } from 'bfast-client';
-
-async function streamUsers() {
-    const response = await fetch('/api/stream-users', {
-        headers: { 'Accept': 'application/x-bfast-stream' }
-    });
-
-    if (!response.body) return;
-
-    // Consome frames binários de forma assíncrona conforme chegam pela rede
-    for await (const user of readBFastStream(response.body)) {
-        console.log('Usuário recebido em tempo real:', user);
-    }
-}
-```
-
-#### Decodificador de Stream de Baixo Nível (`BFastStreamDecoder`)
-
-Para WebSockets, conexões TCP ou controle manual de buffers:
-
-```typescript
-import { BFastStreamDecoder } from 'bfast-client';
-
-const decoder = new BFastStreamDecoder({ maxFrameSize: 16 * 1024 * 1024 });
-
-// Recebendo chunks binários (Uint8Array)
-function onChunkReceived(chunk: Uint8Array) {
-    const items = decoder.feed(chunk);
-    for (const item of items) {
-        console.log('Item decodificado:', item);
-    }
-}
-```
-
-## 🚀 Integração com Frameworks
-
-### React
-
-```tsx
-import React, { useState, useEffect } from 'react';
-import { BFastDecoder } from 'bfast-client';
+import { bfastFetch } from 'bfast-client';
 
 interface User {
     id: number;
     name: string;
-    email: string;
+    role: string;
 }
 
-const UserList: React.FC = () => {
-    const [users, setUsers] = useState<User[]>([]);
-    const [loading, setLoading] = useState(true);
+// GET: Configura automaticamente cabeçalhos e decodifica a resposta binária
+const users = await bfastFetch<User[]>('/api/users');
+console.log(users[0].name);
 
-    useEffect(() => {
-        const loadUsers = async () => {
-            try {
-                const response = await fetch('/api/users');
-                const buffer = await response.arrayBuffer();
-                const userData = BFastDecoder.decode(buffer) as User[];
-                setUsers(userData);
-            } catch (error) {
-                console.error('Erro ao carregar usuários:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
+// POST: Serializa automaticamente objetos JS para binário B-FAST
+const created = await bfastFetch<User>('/api/users', {
+    method: 'POST',
+    body: { name: 'Alice', role: 'admin' },
+    compress: true, // opcional: compressão LZ4
+});
+```
 
-        loadUsers();
-    }, []);
+---
 
-    if (loading) return <div>Carregando...</div>;
+## 🔄 Serialização e Decodificação Bidirecional
 
-    return (
-        <ul>
-            {users.map(user => (
-                <li key={user.id}>{user.name} - {user.email}</li>
-            ))}
-        </ul>
+### Codificação Binária (`BFastEncoder`)
+
+Serializa objetos JavaScript nativos, datas, arrays e arrays tipados diretamente para a representação binária wire format:
+
+```typescript
+import { BFastEncoder } from 'bfast-client';
+
+const payload = {
+    userId: 42,
+    username: 'alice',
+    tags: ['admin', 'dev'],
+    createdAt: new Date(),
+    matrix: new Float64Array([1.5, 2.5, 3.5]),
+};
+
+// Gera Uint8Array binário B-FAST puro
+const bytes = BFastEncoder.encode(payload);
+
+// Com compressão LZ4 ativada
+const compressedBytes = BFastEncoder.encode(payload, { compress: true });
+```
+
+### Decodificação Binária (`BFastDecoder`)
+
+```typescript
+import { BFastDecoder } from 'bfast-client';
+
+// Decodifica ArrayBuffer ou Uint8Array
+const data = BFastDecoder.decode<User>(buffer);
+
+// Extração com arrays tipados (Zero-Copy Float64Array)
+const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
+```
+
+---
+
+## ⚡ Compressão Transparente (Zero Config)
+
+O `bfast-client` gerencia compressão e descompressão LZ4 de forma totalmente automática, transparente e com zero configuração:
+
+- **Zero Configuração:** Sem necessidade de plugins de bundler (Vite, Webpack, Next.js), arquivos externos para servir ou dependências nativas.
+- **Detecção Automática:** Ao decodificar qualquer payload gerado com compressão (`compress: true`), o cliente detecta e descomprime os dados instantaneamente.
+- **Universal:** Funciona de imediato em navegadores, Node.js, Bun, Deno e Cloudflare Workers.
+
+---
+
+## 🌊 Streaming em Tempo Real (Bidirecional)
+
+### Consumindo Streams (`decodeReadableStream` e `decodeStream`)
+
+Consuma dados progressivos enviados por `BFastStreamingResponse` ou servidores MCP sem travar a interface:
+
+```typescript
+import { decodeReadableStream, decodeStream } from 'bfast-client';
+
+// No navegador com Fetch API ReadableStream
+const response = await fetch('/api/stream-users');
+for await (const user of decodeReadableStream<User>(response.body!)) {
+    console.log('Usuário recebido em tempo real:', user);
+}
+
+// Universal (tanto ReadableStream quanto async iterators do Node.js)
+for await (const item of decodeStream(response.body!)) {
+    console.log('Item recebido:', item);
+}
+```
+
+### Codificando Frames de Stream (`BFastStreamEncoder`)
+
+```typescript
+import { BFastStreamEncoder } from 'bfast-client';
+
+// Handshake de stream
+const handshake = BFastStreamEncoder.getHandshake();
+
+// Codifica objetos JS diretamente em frames
+const frame = BFastStreamEncoder.encodeFrame({ sensor: 'A', value: 42 });
+
+// Frame de término de stream (End of Stream)
+const eos = BFastStreamEncoder.getEosFrame();
+```
+
+---
+
+## 🧩 Integração com Frameworks
+
+### TanStack Query (React Query, Vue Query, Svelte, Solid)
+
+A melhor forma de integrar o B-FAST com React Query ou qualquer sabor do TanStack Query é com o helper `bfastQueryOptions`:
+
+```typescript
+import { useQuery } from '@tanstack/react-query';
+import { bfastQueryOptions } from 'bfast-client';
+import { z } from 'zod';
+
+const UserSchema = z.object({
+    id: z.number(),
+    name: z.string(),
+    email: z.string().email(),
+});
+type User = z.infer<typeof UserSchema>;
+
+export function UserProfile({ id }: { id: number }) {
+    const { data: user, isLoading } = useQuery(
+        bfastQueryOptions<User>({
+            queryKey: ['user', id],
+            url: `/api/users/${id}`,
+            schema: UserSchema, // Validação e tipagem estrita em runtime
+            staleTime: 10_000,
+        })
     );
-};
-```
 
-### Vue.js
-
-```vue
-<template>
-  <div>
-    <div v-if="loading">Carregando...</div>
-    <ul v-else>
-      <li v-for="user in users" :key="user.id">
-        {{ user.name }} - {{ user.email }}
-      </li>
-    </ul>
-  </div>
-</template>
-
-<script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { BFastDecoder } from 'bfast-client';
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
+    if (isLoading) return <span>Carregando...</span>;
+    return <h1>{user?.name}</h1>;
 }
-
-const users = ref<User[]>([]);
-const loading = ref(true);
-
-const loadUsers = async () => {
-  try {
-    const response = await fetch('/api/users');
-    const buffer = await response.arrayBuffer();
-    const userData = BFastDecoder.decode(buffer) as User[];
-    users.value = userData;
-  } catch (error) {
-    console.error('Erro ao carregar usuários:', error);
-  } finally {
-    loading.value = false;
-  }
-};
-
-onMounted(loadUsers);
-</script>
 ```
 
-### Angular
+#### Infinite Query (Paginação e Scroll Infinito)
 
 ```typescript
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { BFastDecoder } from 'bfast-client';
-import { Observable, from } from 'rxjs';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { bfastInfiniteQueryOptions } from 'bfast-client';
 
-export interface User {
-  id: number;
-  name: string;
-  email: string;
-}
-
-@Injectable({
-  providedIn: 'root'
-})
-export class UserService {
-  constructor(private http: HttpClient) {}
-
-  getUsers(): Observable<User[]> {
-    return from(this.loadUsers());
-  }
-
-  private async loadUsers(): Promise<User[]> {
-    const response = await fetch('/api/users');
-    const buffer = await response.arrayBuffer();
-    return BFastDecoder.decode(buffer) as User[];
-  }
-}
-```
-
-## 🔧 Configurações Avançadas
-
-### Tratamento de Erros
-
-```typescript
-async function safeDecode(buffer: ArrayBuffer) {
-    try {
-        return BFastDecoder.decode(buffer);
-    } catch (error) {
-        console.error('Erro na decodificação B-FAST:', error);
-        
-        // Fallback para JSON se necessário
-        const text = new TextDecoder().decode(buffer);
-        return JSON.parse(text);
-    }
-}
-```
-
-### Verificação de Tipo de Conteúdo
-
-```typescript
-async function fetchWithBFast(url: string) {
-    const response = await fetch(url);
-    const contentType = response.headers.get('content-type');
-    
-    if (contentType === 'application/x-bfast') {
-        const buffer = await response.arrayBuffer();
-        return BFastDecoder.decode(buffer);
-    } else {
-        return await response.json();
-    }
-}
-```
-
-### Cache com Service Worker
-
-```typescript
-// service-worker.ts
-self.addEventListener('fetch', (event) => {
-    if (event.request.url.includes('/api/')) {
-        event.respondWith(handleBFastRequest(event.request));
-    }
+const queryOptions = bfastInfiniteQueryOptions<User[]>({
+    queryKey: ['users', 'infinite'],
+    initialPageParam: 1,
+    getUrl: (page) => `/api/users?page=${page}`,
+    getNextPageParam: (lastPage, allPages, lastParam) => {
+        return lastPage.length === 20 ? (lastParam as number) + 1 : undefined;
+    },
 });
 
-async function handleBFastRequest(request: Request) {
-    const cache = await caches.open('bfast-cache');
-    const cachedResponse = await cache.match(request);
-    
-    if (cachedResponse) {
-        return cachedResponse;
+const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(queryOptions);
+```
+
+### Validação de Schemas em Tempo de Execução (Zod / Standard Schema)
+
+O `bfast-client` suporta a especificação unificada **Standard Schema** (`~standard` de Zod 3.24+, Valibot 1.0+, ArkType 2.0+) e validadores clássicos (`safeParse`/`parse`):
+
+```typescript
+import { BFastDecoder, bfastFetch, BFastValidationError } from 'bfast-client';
+import { z } from 'zod';
+
+const MetricsSchema = z.object({
+    cpu: z.number(),
+    memory: z.number(),
+    nodes: z.array(z.string()),
+});
+
+// 1. No bfastFetch:
+try {
+    const metrics = await bfastFetch('/api/metrics', { schema: MetricsSchema });
+} catch (err) {
+    if (err instanceof BFastValidationError) {
+        console.error('Erros no schema:', err.issues);
     }
-    
-    const response = await fetch(request);
-    
-    // Cache apenas respostas B-FAST
-    if (response.headers.get('content-type') === 'application/x-bfast') {
-        cache.put(request, response.clone());
-    }
-    
-    return response;
+}
+
+// 2. No BFastDecoder síncrono:
+const metrics = BFastDecoder.decode(buffer, { schema: MetricsSchema });
+
+// 3. Em streams (valida cada frame recebido):
+const streamDecoder = new BFastStreamDecoder({ schema: MetricsSchema });
+```
+
+### React Hook Personalizado
+
+```typescript
+import { useState, useEffect } from 'react';
+import { bfastFetch } from 'bfast-client';
+
+export function useBFastData<T>(url: string) {
+    const [data, setData] = useState<T | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<Error | null>(null);
+
+    useEffect(() => {
+        let active = true;
+        bfastFetch<T>(url)
+            .then(res => { if (active) setData(res); })
+            .catch(err => { if (active) setError(err); })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [url]);
+
+    return { data, loading, error };
 }
 ```
 
-## 📊 Monitoramento de Performance
-
-### Métricas de Transferência
+### Axios Interceptor
 
 ```typescript
-async function fetchWithMetrics(url: string) {
-    const startTime = performance.now();
-    
-    const response = await fetch(url);
-    const buffer = await response.arrayBuffer();
-    
-    const transferTime = performance.now() - startTime;
-    const payloadSize = buffer.byteLength;
-    
-    console.log(`Transfer: ${transferTime.toFixed(2)}ms, Size: ${payloadSize} bytes`);
-    
-    const decodeStart = performance.now();
-    const data = BFastDecoder.decode(buffer);
-    const decodeTime = performance.now() - decodeStart;
-    
-    console.log(`Decode: ${decodeTime.toFixed(2)}ms`);
-    
-    return data;
-}
-```
-
-### Comparação com JSON
-
-```typescript
-async function compareFormats(url: string) {
-    // B-FAST
-    const bfastStart = performance.now();
-    const bfastResponse = await fetch(url);
-    const bfastBuffer = await bfastResponse.arrayBuffer();
-    const bfastData = BFastDecoder.decode(bfastBuffer);
-    const bfastTime = performance.now() - bfastStart;
-    
-    // JSON (para comparação)
-    const jsonStart = performance.now();
-    const jsonResponse = await fetch(url.replace('/api/', '/api/json/'));
-    const jsonData = await jsonResponse.json();
-    const jsonTime = performance.now() - jsonStart;
-    
-    console.log(`B-FAST: ${bfastTime.toFixed(2)}ms (${bfastBuffer.byteLength} bytes)`);
-    console.log(`JSON: ${jsonTime.toFixed(2)}ms (${JSON.stringify(jsonData).length} bytes)`);
-    console.log(`Speedup: ${(jsonTime / bfastTime).toFixed(1)}x`);
-    
-    return bfastData;
-}
-```
-
-## 🎯 Casos de Uso Específicos
-
-### Dashboards em Tempo Real
-
-```typescript
-class RealtimeDashboard {
-    private ws: WebSocket;
-    
-    constructor(wsUrl: string) {
-        this.ws = new WebSocket(wsUrl);
-        this.ws.binaryType = 'arraybuffer';
-        
-        this.ws.onmessage = (event) => {
-            if (event.data instanceof ArrayBuffer) {
-                const data = BFastDecoder.decode(event.data);
-                this.updateDashboard(data);
-            }
-        };
-    }
-    
-    private updateDashboard(data: any) {
-        // Atualizar componentes do dashboard
-        console.log('Dashboard atualizado:', data);
-    }
-}
-```
-
-### Aplicações Mobile (React Native)
-
-```typescript
+import axios from 'axios';
 import { BFastDecoder } from 'bfast-client';
 
-// Otimizado para conexões móveis lentas
-async function fetchMobileOptimized(url: string) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-    
-    try {
-        const response = await fetch(url, {
-            signal: controller.signal,
-            headers: {
-                'Accept': 'application/x-bfast', // Preferir B-FAST
-                'Accept-Encoding': 'gzip, deflate' // Compressão adicional
-            }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        const buffer = await response.arrayBuffer();
-        return BFastDecoder.decode(buffer);
-    } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
+axios.interceptors.response.use(response => {
+    if (response.headers['content-type'] === 'application/x-bfast') {
+        response.data = BFastDecoder.decode(response.data);
     }
-}
+    return response;
+});
 ```
 
-## 🔍 Debugging
+---
 
-### Inspeção de Dados
+## 🛡️ Tratamento de Erros
 
 ```typescript
-function debugBFast(buffer: ArrayBuffer) {
-    console.log('Buffer size:', buffer.byteLength);
-    console.log('First 16 bytes:', new Uint8Array(buffer.slice(0, 16)));
-    
-    try {
-        const data = BFastDecoder.decode(buffer);
-        console.log('Decoded successfully:', data);
-        return data;
-    } catch (error) {
-        console.error('Decode failed:', error);
-        return null;
+import { BFastDecoder, BFastError, BFastValidationError } from 'bfast-client';
+
+try {
+    const data = BFastDecoder.decode(buffer, { schema: UserSchema });
+} catch (error) {
+    if (error instanceof BFastValidationError) {
+        console.error('Falha de validação no payload:', error.issues);
+    } else if (error instanceof BFastError) {
+        console.error('Erro de decodificação binária B-FAST:', error.message);
     }
 }
 ```
 
-## 📚 Próximos Passos
+---
 
-- [Performance](performance.md) - Análise técnica detalhada
-- [Solução de Problemas](troubleshooting.md) - Guia de troubleshooting
-- [Início](index.md) - Voltar ao início
+## 🌐 Compatibilidade
+
+- **Navegadores:** Chrome 60+, Firefox 55+, Safari 12+, Edge 79+
+- **Runtimes:** Node.js 14+, Bun, Deno, Cloudflare Workers
+- **Formatos:** Dual Module (ESM nativo + CommonJS)

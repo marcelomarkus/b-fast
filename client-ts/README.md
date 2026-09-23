@@ -2,7 +2,7 @@
 
 Ultra-fast binary serializer, streaming frame engine, and decoder for the ⚡**B-FAST** format in TypeScript & JavaScript.
 
-Supports **Node.js**, **Browsers**, **Cloudflare Workers**, **Deno**, and **Bun** with **Dual Module (ESM & CJS)** and **Automatic WebAssembly (Wasm) LZ4 Acceleration**.
+Supports **Node.js**, **Browsers**, **Cloudflare Workers**, **Deno**, and **Bun** with **Dual Module (ESM & CJS)** and **transparent zero-config LZ4 compression**.
 
 ---
 
@@ -79,29 +79,13 @@ const fastNumeric = BFastDecoder.decode(buffer, { typedArrays: true });
 
 ---
 
-## 🚀 WebAssembly Acceleration (Zero-Config)
+## ⚡ Transparent Compression (Zero-Config)
 
-`bfast-client` comes with an embedded **10 KB WebAssembly LZ4 engine** compiled from Rust (`lz4_flex`).
+`bfast-client` handles LZ4 compression and decompression automatically:
 
-- **Automatic Activation:** Activated lazily on the first compressed block encountered. No bundler plugins, no file loading, and no network requests required!
-- **Transparent Fallback:** If `WebAssembly` is unavailable (e.g. strict CSP), it silently and transparently falls back to pure JavaScript `lz4js`.
-- **Custom Decompressors:** You can inspect status or register custom decompressors:
-
-```typescript
-import { isWasmEnabled, initWasmLz4Sync, BFastDecoder } from 'bfast-client';
-
-// Check if Wasm acceleration is currently active
-console.log('Wasm LZ4 active:', isWasmEnabled());
-
-// Optional: explicit manual initialization if desired
-initWasmLz4Sync();
-
-// Custom decompressor hook
-BFastDecoder.setDecompressor((compressedBytes, uncompressedSize) => {
-    // your custom decompression logic
-    return decompressedBytes;
-});
-```
+- **Zero Configuration:** No bundler plugins (Vite, Webpack, Next.js), separate asset files, or native build steps required.
+- **Automatic Detection:** Any compressed payload (`compress: true`) is detected and unpacked on the fly.
+- **Universal:** Works out of the box across Browsers, Node.js, Bun, Deno, and Edge Workers.
 
 ---
 

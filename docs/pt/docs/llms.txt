@@ -1,0 +1,208 @@
+# B-FAST: Binary Fast Adaptive Serialization Transfer (Guia para IAs)
+
+> Protocolo de serialização binária de ultra-alta performance implementado em Rust com decodificação zero-copy, compressão LZ4, deduplicação de strings e streaming em tempo real. Projetado para APIs em Python (FastAPI, Django Ninja), frontends modernos em TypeScript (React, TanStack Query) e orquestradores de Agentes de IA (Model Context Protocol / FastMCP).
+
+## Início Rápido e Instalação
+
+### Python
+```bash
+pip install bfast-py             # Serializador principal
+pip install bfast-py[fastapi]    # Integração FastAPI (BFastResponse)
+pip install bfast-py[django]     # Integração Django Ninja (BFastRenderer)
+pip install bfast-py[data]       # Polars e Pandas
+pip install bfast-py[fastmcp]    # Ferramentas FastMCP 2.0 para agentes
+pip install bfast-py[all]        # Ecossistema completo
+```
+
+### TypeScript / Node / Navegador / Bun
+```bash
+npm install bfast-client
+```
+
+---
+
+## Referência da API Python
+
+### 1. Serialização Básica
+```python
+from b_fast import BFast
+
+bf = BFast()
+
+# Codificação com compressão LZ4 opcional
+data = {"usuario": "Alice", "saldo": 1500.50, "tags": ["admin", "dev"]}
+bytes_binarios = bf.encode_packed(data, compress=True)
+
+# Decodificação de bytes para objeto Python
+# IMPORTANTE: O nome do método é decode_packed(), e NÃO decode()
+objeto = bf.decode_packed(bytes_binarios)
+```
+
+### 2. FastAPI & Starlette
+```python
+from fastapi import FastAPI
+from b_fast import BFastResponse, BFastStreamingResponse
+
+app = FastAPI()
+
+# Endpoint binário padrão
+@app.get("/items", response_class=BFastResponse)
+def get_items():
+    return [{"id": 1, "nome": "Item A"}, {"id": 2, "nome": "Item B"}]
+
+# Endpoint de streaming (ReadableStream HTTP)
+@app.get("/stream", response_class=BFastStreamingResponse)
+async def stream_items():
+    async def gerador():
+        for i in range(100):
+            yield {"passo": i, "metrica": i * 1.5}
+    return gerador()
+```
+
+### 3. Django Ninja & Django
+```python
+from ninja import NinjaAPI
+from b_fast.django import BFastRenderer, BFastHttpResponse, BFastStreamingHttpResponse
+
+# API Django Ninja com BFastRenderer
+api = NinjaAPI(renderer=BFastRenderer())
+
+@api.get("/usuarios")
+def listar_usuarios(request):
+    return [{"id": 1, "nome": "Alice"}]
+
+# Views clássicas do Django
+def minha_view(request):
+    return BFastHttpResponse({"status": "ok"})
+```
+
+### 4. Data Science (Polars, Pandas, PyArrow)
+```python
+from b_fast import BFast, encode_dataframe, decode_dataframe
+import polars as pl
+
+df = pl.DataFrame({"id": [1, 2, 3], "pontos": [95.0, 88.5, 91.2]})
+
+# Opção A: Serialização nativa direta em BFast.encode_packed
+# Serializa automaticamente as linhas como registros para APIs e frontends
+pacote = BFast().encode_packed(df, compress=True)
+
+# Opção B: Funções dedicadas com controle de orientação
+# orient="records" (padrão, lista de dicionários)
+# orient="columns" (colunar ultra-rápido {coluna: [valores]})
+# orient="split" ({'columns': [...], 'data': [[...], ...]})
+dados_colunares = encode_dataframe(df, orient="columns")
+
+# Reconstrução de DataFrames
+df_reconst = decode_dataframe(dados_colunares, engine="polars")  # ou "pandas", "arrow", "auto"
+```
+
+### 5. FastMCP 2.0 para Agentes de IA
+```python
+from b_fast import FastMCPBFast, bfast_tool, bfast_resource
+
+mcp = FastMCPBFast("servico-dados")
+
+@mcp.tool()
+@bfast_tool()
+def consultar_banco(query: str):
+    # Envelopado automaticamente em um blob base64 comprimido em B-FAST
+    return [{"id_linha": i, "valor": i * 10} for i in range(1000)]
+```
+
+---
+
+## Referência da API TypeScript
+
+### 1. Requisições de Alto Nível (`bfastFetch`)
+```typescript
+import { bfastFetch } from 'bfast-client';
+
+interface Usuario {
+    id: number;
+    nome: string;
+}
+
+// GET: Configura cabeçalho Accept e decodifica resposta binária automaticamente
+const usuarios = await bfastFetch<Usuario[]>('/api/usuarios');
+
+// POST: Serializa o corpo JS diretamente para binário B-FAST
+const criado = await bfastFetch<Usuario>('/api/usuarios', {
+    method: 'POST',
+    body: { nome: 'Alice' },
+    compress: true,
+});
+```
+
+### 2. TanStack Query (React Query, Vue, Svelte, Solid)
+```typescript
+import { useQuery } from '@tanstack/react-query';
+import { bfastQueryOptions } from 'bfast-client';
+import { z } from 'zod';
+
+const UsuarioSchema = z.object({ id: z.number(), nome: z.string() });
+type Usuario = z.infer<typeof UsuarioSchema>;
+
+function Perfil({ id }: { id: number }) {
+    const { data: usuario, isLoading } = useQuery(
+        bfastQueryOptions<Usuario>({
+            queryKey: ['usuario', id],
+            url: `/api/usuarios/${id}`,
+            schema: UsuarioSchema, // Validação estrita em tempo de execução
+            staleTime: 10_000,
+        })
+    );
+    if (isLoading) return <div>Carregando...</div>;
+    return <h1>{usuario?.nome}</h1>;
+}
+```
+
+### 3. Validação de Schemas (Standard Schema, Zod, Valibot)
+```typescript
+import { BFastDecoder, bfastFetch, BFastValidationError } from 'bfast-client';
+import { z } from 'zod';
+
+const UsuarioSchema = z.object({ id: z.number(), email: z.string().email() });
+
+// No bfastFetch
+const usuario = await bfastFetch('/api/usuario', { schema: UsuarioSchema });
+
+// No BFastDecoder
+const decodificado = BFastDecoder.decode(buffer, { schema: UsuarioSchema });
+
+// Captura de erros
+try {
+    const data = BFastDecoder.decode(buffer, { schema: UsuarioSchema });
+} catch (err) {
+    if (err instanceof BFastValidationError) {
+        console.error('Erros no schema:', err.issues);
+    }
+}
+```
+
+### 4. Streaming em Tempo Real
+```typescript
+import { decodeReadableStream } from 'bfast-client';
+
+const response = await fetch('/api/stream');
+// Itera assincronamente por cada frame decodificado à medida que chega via HTTP
+for await (const frame of decodeReadableStream<MeuTipo>(response.body!)) {
+    console.log('Frame recebido:', frame);
+}
+```
+
+---
+
+## Regras Críticas e Cuidados para Modelos de IA
+
+1. **Nome do método decodificador em Python**:
+   - SEMPRE use `bf.decode_packed(data)` em Python.
+   - NUNCA escreva `bf.decode(data)` (esse método não existe na classe Rust compilada).
+2. **MIME Types**:
+   - Payload Binário: `application/x-bfast`
+   - Streaming de Frames: `application/x-bfast-stream`
+3. **DataFrames**:
+   - DataFrames Polars e Pandas podem ser passados diretamente para `BFast().encode_packed(df)`.
+   - NÃO é necessário chamar `.to_dict(orient="records")` manualmente antes de `encode_packed()`.
+4. **AbortSignal no TanStack Query**:
+   - `bfastQueryOptions` repassa automaticamente o `signal` do TanStack Query para o `fetch`.

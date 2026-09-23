@@ -159,53 +159,30 @@ for i, batch in enumerate(large_batches):
 
 ## 🔍 Problemas de Serialização
 
-### "Unsupported type" Error
+### Erro "Unsupported type"
+
+O B-FAST suporta nativamente tipos primitivos, coleções (`list`, `dict`), Pydantic (v1 e v2), `datetime`/`date`/`time` (preservando tipo com tags de data), `UUID`, `Decimal`, arrays NumPy e DataFrames (Polars, Pandas, PyArrow).
 
 **Sintoma:**
 ```python
-TypeError: Unsupported type for serialization: <class 'datetime.datetime'>
+TypeError: Unsupported type for serialization: <class 'meu_modulo.MinhaClasseCustomizada'>
 ```
 
 **Soluções:**
 
-1. **Converter para tipos suportados:**
+1. **Modelar com Pydantic ou dataclass:**
 ```python
-from datetime import datetime
 from pydantic import BaseModel
 
-class User(BaseModel):
+class Item(BaseModel):
     id: int
-    name: str
-    created_at: str  # ✅ String ao invés de datetime
-    
-    @classmethod
-    def from_datetime(cls, id: int, name: str, created_at: datetime):
-        return cls(
-            id=id,
-            name=name,
-            created_at=created_at.isoformat()  # Converter para string
-        )
+    nome: str
 ```
 
-2. **Usar serializers customizados:**
+2. **Converter para dicionário ou utilizar `vars()`:**
 ```python
-import json
-from datetime import datetime
-
-def serialize_with_dates(data):
-    # Pré-processar dados complexos
-    if isinstance(data, list):
-        processed = []
-        for item in data:
-            if hasattr(item, 'created_at') and isinstance(item.created_at, datetime):
-                item_dict = item.dict() if hasattr(item, 'dict') else item
-                item_dict['created_at'] = item.created_at.isoformat()
-                processed.append(item_dict)
-            else:
-                processed.append(item)
-        return bf.encode_packed(processed, compress=True)
-    
-    return bf.encode_packed(data, compress=True)
+dados = [item.__dict__ for item in objetos_customizados]
+payload = bf.encode_packed(dados)
 ```
 
 ### Dados Corrompidos
@@ -290,19 +267,10 @@ const response = await fetch('/api/data');
 const text = await response.text();  // Não funciona!
 ```
 
-3. **Verificar compressão:**
+3. **Verificar se a resposta contém bytes:**
 ```typescript
-// Debug: verificar se dados estão comprimidos
-function debugBuffer(buffer: ArrayBuffer) {
-    const view = new Uint8Array(buffer);
-    console.log('First 16 bytes:', Array.from(view.slice(0, 16)));
-    
-    // B-FAST comprimido geralmente começa com [4, 34, 77, 24]
-    if (view[0] === 4 && view[1] === 34) {
-        console.log('✅ Parece ser B-FAST comprimido');
-    } else {
-        console.log('⚠️  Formato inesperado');
-    }
+if (!buffer || buffer.byteLength === 0) {
+    console.warn('⚠️ Buffer vazio recebido do servidor.');
 }
 ```
 

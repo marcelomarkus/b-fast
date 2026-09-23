@@ -211,4 +211,4 @@ Measured on standard commodity hardware across 1,000 structured frames:
 | **Sustained Stream Throughput** | — | **> 12,500 frames/s** | **Real-Time** |
 
 !!! note "Fragmented Packets Handling"
-    `BFastStreamDecoder` maintains an internal ring buffer that resumes partial frames across TCP packet boundaries without copying unchanged data.
+    `BFastStreamDecoder` automatically reassembles partial frames across network chunk boundaries without requiring manual packet tracking.

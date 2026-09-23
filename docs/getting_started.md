@@ -77,24 +77,26 @@ async def stream_users():
 
 ---
 
-### Model Context Protocol (MCP) Integration 🤖
-Transmit large masses of AI tool output using B-FAST Streamable HTTP:
+### FastMCP 2.0 Integration 🤖
+Transmit large masses of AI tool output using B-FAST decorators to save up to 85% context tokens:
 
 ```python
-from b_fast import (
-    is_bfast_stream_requested,
-    stream_mcp_async_tool_results,
-    wrap_mcp_tool_output,
-)
+from b_fast.fastmcp import FastMCPBFast, bfast_tool
 
-# Check content negotiation
-if is_bfast_stream_requested(request.headers):
-    # Stream generator output in binary
-    return stream_mcp_async_tool_results(tool_data_generator())
+mcp = FastMCPBFast("Analytics Server")
+
+@mcp.tool()
+@bfast_tool(compress=True)
+def query_large_dataset(limit: int = 1000) -> list[dict]:
+    return [{"id": i, "value": i * 1.5} for i in range(limit)]
 ```
+
+---
 
 ## Next Steps
 
-- [Frontend Integration](frontend.md) - TypeScript client setup & streaming
-- [Performance](performance.md) - Detailed benchmarks
-- [Troubleshooting](troubleshooting.md) - Common issues
+- [Integrations Guide](integrations.md) - Django Ninja, Django, Polars, and Pandas
+- [Frontend Integration](frontend.md) - TypeScript client, TanStack Query, and Zod
+- [AI & LLM Guide (`llms.txt`)](ai.md) - OpenCode, Cursor, and Claude Code instructions
+- [Performance & Benchmarks](performance.md) - Technical benchmarks vs orjson and JSON
+- [Troubleshooting](troubleshooting.md) - Common issues and solutions

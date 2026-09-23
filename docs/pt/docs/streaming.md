@@ -211,4 +211,4 @@ Medição em hardware padrão sobre 1.000 frames estruturados:
 | **Vazão Contínua Sustentada** | — | **> 12.500 frames/s** | **Tempo Real** |
 
 !!! note "Tratamento de Pacotes Fragmentados"
-    O `BFastStreamDecoder` mantém um buffer circular interno que retoma a decodificação de frames parciais através das fronteiras de pacotes TCP sem cópias redundantes de memória.
+    O `BFastStreamDecoder` remonta e decodifica automaticamente frames parciais fragmentados entre pacotes de rede sem exigir remontagem manual.

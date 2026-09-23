@@ -77,24 +77,26 @@ async def stream_users():
 
 ---
 
-### Integração com Model Context Protocol (MCP) 🤖
-Transmita grandes massas de dados de ferramentas de IA utilizando o B-FAST Streamable HTTP:
+### Integração com FastMCP 2.0 🤖
+Transmita grandes massas de dados de ferramentas de IA utilizando decoradores B-FAST, reduzindo o consumo de tokens em até 85%:
 
 ```python
-from b_fast import (
-    is_bfast_stream_requested,
-    stream_mcp_async_tool_results,
-    wrap_mcp_tool_output,
-)
+from b_fast.fastmcp import FastMCPBFast, bfast_tool
 
-# Verifica a negociação de conteúdo do cliente MCP
-if is_bfast_stream_requested(request.headers):
-    # Transmite o gerador diretamente em binário
-    return stream_mcp_async_tool_results(tool_data_generator())
+mcp = FastMCPBFast("Servidor de Analytics")
+
+@mcp.tool()
+@bfast_tool(compress=True)
+def consulta_dataset(limite: int = 1000) -> list[dict]:
+    return [{"id": i, "valor": i * 1.5} for i in range(limite)]
 ```
+
+---
 
 ## Próximos Passos
 
-- [Integração Frontend](frontend.md) - Configuração do cliente TypeScript & streaming
-- [Performance](performance.md) - Benchmarks detalhados
-- [Solução de Problemas](troubleshooting.md) - Problemas comuns
+- [Guia de Integrações](integrations.md) - Django Ninja, Django, Polars e Pandas
+- [Integração Frontend](frontend.md) - Cliente TypeScript, TanStack Query e Zod
+- [Guia para IAs & LLMs (`llms.txt`)](ai.md) - Instruções para OpenCode, Cursor e Claude Code
+- [Performance & Benchmarks](performance.md) - Benchmarks técnicos vs orjson e JSON
+- [Solução de Problemas](troubleshooting.md) - Resolução de dúvidas frequentes

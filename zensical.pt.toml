@@ -16,7 +16,7 @@ nav = [
     { "FastMCP & MCP" = "mcp.md" },
     { "Integrações" = "integrations.md" },
     { "Frontend (TypeScript)" = "frontend.md" },
-    { "Otimizações" = "optimizations.md" },
+    { "Para IAs & LLMs (llms.txt)" = "ai.md" },
   ]},
   { "Referência" = [
     { "Referência da API" = "api.md" },

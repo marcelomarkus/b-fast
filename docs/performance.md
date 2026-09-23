@@ -78,10 +78,10 @@ B-FAST performance scales linearly with data size:
 
 ## 🔬 Technical Optimizations
 
-### Rust Implementation
-- **Direct memory access** with unsafe operations
-- **Efficient type detection** and serialization
-- **Optimized Pydantic integration** - reads directly from memory
+### Rust Core Engine
+- **Native binary execution** with PyO3 bindings
+- **Fast type inspection** and direct buffer serialization
+- **Native Pydantic & DataFrame support** without intermediary conversions
 
 ### Compression
 - **Built-in LZ4** compression

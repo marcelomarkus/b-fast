@@ -99,10 +99,10 @@ A performance do B-FAST escala linearmente com o tamanho dos dados:
 
 ## 🔬 Otimizações Técnicas
 
-### Implementação em Rust
-- **Acesso direto à memória** com operações unsafe
-- **Detecção eficiente de tipos** e serialização
-- **Integração otimizada com Pydantic** - lê diretamente da memória
+### Núcleo Nativo em Rust
+- **Execução binária nativa** compilada com PyO3
+- **Inspeção rápida de tipos** e serialização direta em buffers
+- **Suporte nativo a Pydantic & DataFrames** sem conversões intermediárias
 
 ### Compressão
 - **LZ4 integrado**

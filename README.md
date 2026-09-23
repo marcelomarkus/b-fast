@@ -138,59 +138,73 @@ async def stream_users():
     return BFastStreamingResponse(user_generator())
 ```
 
-#### 2. Flask
+#### 2. Django Ninja & Django
 ```python
-from flask import Flask, Response
-import b_fast
+from ninja import NinjaAPI
+from b_fast.django import BFastRenderer, BFastHttpResponse
 
-app = Flask(__name__)
-encoder = b_fast.BFast()
+# Django Ninja with BFastRenderer
+api = NinjaAPI(renderer=BFastRenderer())
 
-@app.route('/users')
-def get_users():
-    users = [{"id": i, "name": f"User {i}"} for i in range(1000)]
-    data = encoder.encode_packed(users, compress=True)
-    return Response(data, mimetype='application/octet-stream')
-```
-
-#### 3. Django
-```python
-from django.http import HttpResponse
-import b_fast
-
-encoder = b_fast.BFast()
-
+@api.get("/users")
 def get_users(request):
-    users = [{"id": i, "name": f"User {i}"} for i in range(1000)]
-    data = encoder.encode_packed(users, compress=True)
-    return HttpResponse(data, content_type='application/octet-stream')
+    return [{"id": i, "name": f"User {i}"} for i in range(1000)]
+
+# Standard Django View
+def django_view(request):
+    return BFastHttpResponse({"status": "ok"})
 ```
 
-#### 4. Any Python Framework
+#### 3. Polars & Pandas DataFrames
 ```python
-import b_fast
+from b_fast import BFast, encode_dataframe
+import polars as pl
 
-encoder = b_fast.BFast()
+df = pl.DataFrame({"id": [1, 2, 3], "score": [95.0, 88.0, 92.5]})
 
-# Encode your data
-data = encoder.encode_packed(your_data, compress=True)
+# Direct native serialization in BFast
+packed = BFast().encode_packed(df, compress=True)
 
-# Return as bytes (binary response)
+# Or with orientation control ('records', 'columns', 'split')
+col_data = encode_dataframe(df, orient="columns")
+```
+
+#### 4. FastMCP 2.0 (AI Agent Tools)
+```python
+from b_fast import FastMCPBFast, bfast_tool
+
+mcp = FastMCPBFast("data-service")
+
+@mcp.tool()
+@bfast_tool()
+def query_records(limit: int = 100):
+    return [{"id": i, "metric": i * 1.5} for i in range(limit)]
 ```
 
 ### Frontend (TypeScript)
 
-#### 1. Standard Response
+#### 1. Fetch & TanStack Query (React Query)
 ```typescript
-import { BFastDecoder } from 'bfast-client';
+import { bfastFetch, bfastQueryOptions } from 'bfast-client';
+import { useQuery } from '@tanstack/react-query';
+import { z } from 'zod';
 
-async function loadData() {
-    const response = await fetch('/users');
-    const buffer = await response.arrayBuffer();
-    
-    // Decodes and decompresses LZ4 automatically
-    const users = BFastDecoder.decode(buffer);
-    console.log(users);
+const UserSchema = z.object({ id: z.number(), name: z.string() });
+type User = z.infer<typeof UserSchema>;
+
+// Direct Fetch
+const users = await bfastFetch<User[]>('/users');
+
+// In React with TanStack Query
+function UserComponent() {
+    const { data: user } = useQuery(
+        bfastQueryOptions<User>({
+            queryKey: ['user', 1],
+            url: '/users/1',
+            schema: UserSchema, // Runtime schema validation
+        })
+    );
+    return <div>{user?.name}</div>;
 }
 ```
 
@@ -201,11 +215,20 @@ import { decodeReadableStream } from 'bfast-client';
 async function streamData() {
     const response = await fetch('/users/stream');
     
-    // Iterates over incoming network chunks in real-time
+    // Iterates over incoming network frames in real-time
     for await (const user of decodeReadableStream(response.body!)) {
         console.log('Received user in real-time:', user);
     }
 }
+```
+
+## 🤖 AI Assistants & Coding Agents (`llms.txt`)
+
+B-FAST provides a standardized, curated **[`llms.txt`](https://marcelomarkus.github.io/b-fast/llms.txt)** endpoint for AI tools (**OpenCode**, **Cursor**, **Claude Code**, **ChatGPT**, **Windsurf**, and **GitHub Copilot**).
+
+Prompt your AI assistant directly:
+```markdown
+Follow the B-FAST guidelines at https://marcelomarkus.github.io/b-fast/llms.txt to implement binary endpoints.
 ```
 
 ## About B-FAST

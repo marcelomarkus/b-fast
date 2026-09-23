@@ -1,12 +1,12 @@
-# Frontend TypeScript - Consumindo e Produzindo B-FAST
+# 🌐 Frontend TypeScript - Consuming & Producing B-FAST
 
-O pacote [`bfast-client`](file:///home/markus/dev/b-fast/client-ts) é a biblioteca ultra-rápida de serialização, streaming e decodificação binária para JavaScript e TypeScript.
+The [`bfast-client`](https://www.npmjs.com/package/bfast-client) package is the ultra-fast binary serialization, streaming, and decoding library for JavaScript and TypeScript.
 
-Suporta **Dual-Module (ESM e CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno** e **Cloudflare Workers** com **aceleração nativa WebAssembly LZ4 automática**.
+It supports **Dual-Module (ESM & CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno**, and **Cloudflare Workers** with **automatic, zero-config LZ4 compression**.
 
 ---
 
-## Instalação
+## 📦 Installation
 
 ```bash
 npm install bfast-client
@@ -14,9 +14,9 @@ npm install bfast-client
 
 ---
 
-## ⚡ Início Rápido: `bfastFetch`
+## ⚡ Quick Start: `bfastFetch`
 
-A maneira mais rápida e ergonômica de se comunicar com endpoints B-FAST:
+The fastest and most ergonomic way to communicate with B-FAST endpoints:
 
 ```typescript
 import { bfastFetch } from 'bfast-client';
@@ -27,25 +27,25 @@ interface User {
     role: string;
 }
 
-// GET: Configura automaticamente cabeçalhos e decodifica a resposta binária
+// GET: Automatically sets Accept headers and decodes the binary response
 const users = await bfastFetch<User[]>('/api/users');
 console.log(users[0].name);
 
-// POST: Serializa automaticamente objetos JS para binário B-FAST
+// POST: Automatically serializes JS objects to B-FAST binary payload
 const created = await bfastFetch<User>('/api/users', {
     method: 'POST',
     body: { name: 'Alice', role: 'admin' },
-    compress: true, // opcional: compressão LZ4
+    compress: true, // optional LZ4 compression
 });
 ```
 
 ---
 
-## Serialização e Decodificação Bidirecional
+## 🔄 Bidirectional Serialization & Decoding
 
-### Codificação Binária (`BFastEncoder`)
+### Binary Encoding (`BFastEncoder`)
 
-Serializa objetos JavaScript nativos, datas, arrays e arrays tipados diretamente para a representação binária wire format:
+Serializes native JavaScript objects, dates, arrays, and typed arrays directly into the binary wire format:
 
 ```typescript
 import { BFastEncoder } from 'bfast-client';
@@ -58,93 +58,80 @@ const payload = {
     matrix: new Float64Array([1.5, 2.5, 3.5]),
 };
 
-// Gera Uint8Array binário B-FAST puro
+// Generates pure B-FAST Uint8Array binary
 const bytes = BFastEncoder.encode(payload);
 
-// Com compressão LZ4 ativada
+// With LZ4 compression enabled
 const compressedBytes = BFastEncoder.encode(payload, { compress: true });
 ```
 
-### Decodificação Binária (`BFastDecoder`)
+### Binary Decoding (`BFastDecoder`)
 
 ```typescript
 import { BFastDecoder } from 'bfast-client';
 
-// Decodifica ArrayBuffer ou Uint8Array
+// Decodes ArrayBuffer or Uint8Array
 const data = BFastDecoder.decode<User>(buffer);
 
-// Extração com arrays tipados (Zero-Copy Float64Array)
+// Zero-copy typed array extraction (Float64Array)
 const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
 ---
 
-## 🚀 Aceleração WebAssembly LZ4 (Automática)
+## ⚡ Transparent Compression (Zero Config)
 
-O `bfast-client` traz embutido um módulo compilado em Rust (`lz4_flex`) de apenas **10 KB** em base64:
+`bfast-client` handles LZ4 compression and decompression automatically and transparently with zero setup:
 
-- **100% Automático:** É inicializado por demanda (*lazy auto-init*) no primeiro bloco comprimido recebido.
-- **Zero Configuração:** Não precisa de plugins de bundler (Vite, Webpack, Next.js) nem requisições adicionais de rede.
-- **Fallback Transparente:** Se o ambiente restringir WebAssembly (ex: CSP corporativo restrito), o cliente chaveia silenciosamente e sem erro para o descompressor puro JavaScript (`lz4js`).
-- **Verificação e Extensibilidade:**
-
-```typescript
-import { isWasmEnabled, BFastDecoder } from 'bfast-client';
-
-// Verifica se a aceleração Wasm está ativa
-console.log('WebAssembly LZ4 ativo:', isWasmEnabled());
-
-// Suporta registrar descompressor customizado se necessário
-BFastDecoder.setDecompressor((compressed, uncompressedSize) => {
-    return minhaDescompressao(compressed, uncompressedSize);
-});
-```
+- **Zero Configuration:** No bundler plugins (Vite, Webpack, Next.js), external assets to serve, or native build steps required.
+- **Automatic Detection:** When decoding any compressed payload (`compress: true`), the client detects and decompresses data instantly.
+- **Universal:** Works out of the box in browsers, Node.js, Bun, Deno, and Cloudflare Workers.
 
 ---
 
-## 🌊 Streaming em Tempo Real (Bidirecional)
+## 🌊 Real-Time Streaming (Bidirectional)
 
-### Consumindo Streams (`decodeReadableStream` e `decodeStream`)
+### Consuming Streams (`decodeReadableStream` and `decodeStream`)
 
-Consuma dados progressivos enviados por `BFastStreamingResponse` ou servidores MCP sem travar a interface:
+Consume continuous data frames emitted by `BFastStreamingResponse` or MCP servers without blocking the user interface:
 
 ```typescript
 import { decodeReadableStream, decodeStream } from 'bfast-client';
 
-// No navegador com Fetch API ReadableStream
+// In browsers with Fetch API ReadableStream
 const response = await fetch('/api/stream-users');
 for await (const user of decodeReadableStream<User>(response.body!)) {
-    console.log('Usuário recebido em tempo real:', user);
+    console.log('Real-time user received:', user);
 }
 
-// Universal (tanto ReadableStream quanto async iterators do Node.js)
+// Universal (ReadableStream or Node.js async iterators)
 for await (const item of decodeStream(response.body!)) {
-    console.log('Item recebido:', item);
+    console.log('Stream item received:', item);
 }
 ```
 
-### Codificando Frames de Stream (`BFastStreamEncoder`)
+### Encoding Stream Frames (`BFastStreamEncoder`)
 
 ```typescript
 import { BFastStreamEncoder } from 'bfast-client';
 
-// Handshake de stream
+// Stream handshake
 const handshake = BFastStreamEncoder.getHandshake();
 
-// Codifica objetos JS diretamente em frames
+// Encode JavaScript objects into binary stream frames
 const frame = BFastStreamEncoder.encodeFrame({ sensor: 'A', value: 42 });
 
-// Frame de término de stream (End of Stream)
+// End of Stream (EOS) marker frame
 const eos = BFastStreamEncoder.getEosFrame();
 ```
 
 ---
 
-## Integração com Frameworks
+## 🧩 Framework Integrations
 
 ### TanStack Query (React Query, Vue Query, Svelte, Solid)
 
-A melhor forma de integrar o B-FAST com React Query ou qualquer sabor do TanStack Query é com o helper `bfastQueryOptions`:
+The recommended way to integrate B-FAST with TanStack Query is using `bfastQueryOptions`:
 
 ```typescript
 import { useQuery } from '@tanstack/react-query';
@@ -163,17 +150,17 @@ export function UserProfile({ id }: { id: number }) {
         bfastQueryOptions<User>({
             queryKey: ['user', id],
             url: `/api/users/${id}`,
-            schema: UserSchema, // Validação e tipagem estrita em runtime
+            schema: UserSchema, // Runtime validation & strict typing
             staleTime: 10_000,
         })
     );
 
-    if (isLoading) return <span>Carregando...</span>;
+    if (isLoading) return <span>Loading...</span>;
     return <h1>{user?.name}</h1>;
 }
 ```
 
-#### Infinite Query (Paginação e Scroll Infinito)
+#### Infinite Query (Pagination & Infinite Scroll)
 
 ```typescript
 import { useInfiniteQuery } from '@tanstack/react-query';
@@ -191,9 +178,9 @@ const queryOptions = bfastInfiniteQueryOptions<User[]>({
 const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(queryOptions);
 ```
 
-### Validação de Schemas em Tempo de Execução (Zod / Standard Schema)
+### Runtime Schema Validation (Zod / Standard Schema)
 
-O `bfast-client` suporta a especificação unificada **Standard Schema** (`~standard` de Zod 3.24+, Valibot 1.0+, ArkType) e validadores clássicos:
+`bfast-client` universally supports the **Standard Schema** specification (`~standard` for Zod 3.24+, Valibot 1.0+, ArkType 2.0+) and classic `safeParse`/`parse` validators:
 
 ```typescript
 import { BFastDecoder, bfastFetch, BFastValidationError } from 'bfast-client';
@@ -205,23 +192,23 @@ const MetricsSchema = z.object({
     nodes: z.array(z.string()),
 });
 
-// 1. No bfastFetch:
+// 1. In bfastFetch:
 try {
     const metrics = await bfastFetch('/api/metrics', { schema: MetricsSchema });
 } catch (err) {
     if (err instanceof BFastValidationError) {
-        console.error('Erros no schema:', err.issues);
+        console.error('Schema validation issues:', err.issues);
     }
 }
 
-// 2. No BFastDecoder síncrono:
+// 2. In synchronous BFastDecoder:
 const metrics = BFastDecoder.decode(buffer, { schema: MetricsSchema });
 
-// 3. Em streams (valida cada frame recebido):
+// 3. In streams (validates every incoming frame):
 const streamDecoder = new BFastStreamDecoder({ schema: MetricsSchema });
 ```
 
-### React Hook Personalizado
+### Custom React Hook
 
 ```typescript
 import { useState, useEffect } from 'react';
@@ -261,24 +248,26 @@ axios.interceptors.response.use(response => {
 
 ---
 
-## Tratamento de Erros
+## 🛡️ Error Handling
 
 ```typescript
-import { BFastDecoder, BFastError } from 'bfast-client';
+import { BFastDecoder, BFastError, BFastValidationError } from 'bfast-client';
 
 try {
-    const data = BFastDecoder.decode(buffer);
+    const data = BFastDecoder.decode(buffer, { schema: UserSchema });
 } catch (error) {
-    if (error instanceof BFastError) {
-        console.error('Erro de decodificação B-FAST:', error.message);
+    if (error instanceof BFastValidationError) {
+        console.error('Payload validation failure:', error.issues);
+    } else if (error instanceof BFastError) {
+        console.error('B-FAST binary decoding error:', error.message);
     }
 }
 ```
 
 ---
 
-## Compatibilidade
+## 🌐 Compatibility
 
-- **Navegadores:** Chrome 60+, Firefox 55+, Safari 12+, Edge 79+
+- **Browsers:** Chrome 60+, Firefox 55+, Safari 12+, Edge 79+
 - **Runtimes:** Node.js 14+, Bun, Deno, Cloudflare Workers
-- **Formatos:** Dual Module (ESM nativo + CommonJS)
+- **Module Formats:** Dual Module (native ESM + CommonJS)

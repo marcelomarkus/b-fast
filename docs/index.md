@@ -39,31 +39,31 @@ B-FAST was born from the recognition that modern applications need more than jus
 
     [:octicons-arrow-right-24: FastMCP & Streaming Guide](mcp.md)
 
--   __🐍 FastAPI Integration__
+-   __🐍 Python APIs & Data Science__
 
     ---
 
-    Drop-in `BFastResponse` and `BFastStreamingResponse` supporting both synchronous and asynchronous generators (`AsyncGenerator`).
+    Drop-in integrations for **FastAPI**, **Django Ninja**, **Polars**, and **Pandas** with native DataFrame serialization.
 
-    [:octicons-arrow-right-24: Getting Started](getting_started.md)
+    [:octicons-arrow-right-24: Integrations Guide](integrations.md)
 
--   __💻 TypeScript Client__
+-   __💻 Modern TypeScript & TanStack Query__
 
     ---
 
-    High-performance client for browsers and Node.js (`bfast-client`) with streaming `decodeReadableStream` support.
+    Zero-config client for browsers and Node.js with **TanStack Query** options, **Zod / Standard Schema** validation, and Wasm LZ4.
 
     [:octicons-arrow-right-24: Frontend Guide](frontend.md)
 
--   __🧮 Zero-Copy NumPy & SIMD__
+-   __🤖 AI & LLMs (`llms.txt`)__
 
     ---
 
-    Direct memory mapping for tensors and numerical arrays (**14-96x speedup**) with cache-aligned batch processing.
+    Standardized documentation endpoint for **OpenCode**, **Cursor**, **Claude Code**, and **Copilot** with zero hallucination.
 
-    [:octicons-arrow-right-24: Optimizations](optimizations.md)
+    [:octicons-arrow-right-24: AI & LLM Guide](ai.md)
 
--   __📚 API Reference__
+-   __📚 Complete API Reference__
 
     ---
 
