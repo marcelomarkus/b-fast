@@ -26,19 +26,30 @@ except Exception:
             pass
 
 
+NINJA_AVAILABLE = False
+
+
+class BaseRenderer:  # type: ignore[no-redef]
+    media_type: Optional[str] = None
+    charset: str = "utf-8"
+
+    def render(self, request: Any, data: Any, *, response_status: int = 200) -> Any:
+        raise NotImplementedError
+
+
 try:
-    from ninja.renderers import BaseRenderer
+    import sys
 
-    NINJA_AVAILABLE = True
+    if "django.conf" in sys.modules:
+        from django.conf import settings
+
+        if getattr(settings, "configured", False):
+            from ninja.renderers import BaseRenderer as _NinjaBaseRenderer
+
+            BaseRenderer = _NinjaBaseRenderer  # type: ignore[misc]
+            NINJA_AVAILABLE = True
 except Exception:
-    NINJA_AVAILABLE = False
-
-    class BaseRenderer:  # type: ignore[no-redef]
-        media_type: Optional[str] = None
-        charset: str = "utf-8"
-
-        def render(self, request: Any, data: Any, *, response_status: int = 200) -> Any:
-            raise NotImplementedError
+    pass
 
 
 class BFastRenderer(BaseRenderer):

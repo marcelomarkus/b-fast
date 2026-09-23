@@ -888,16 +888,14 @@ impl BFast {
                         return self.serialize_any_optimized(records);
                     }
                 }
-            } else if type_name == "Series" || type_name == "Index" {
-                if val.hasattr("to_list")? {
-                    let list_vals = val.call_method0("to_list")?;
-                    return self.serialize_any_optimized(list_vals);
-                }
-            } else if type_name == "Table" || type_name == "RecordBatch" {
-                if val.hasattr("to_pylist")? {
-                    let records = val.call_method0("to_pylist")?;
-                    return self.serialize_any_optimized(records);
-                }
+            } else if (type_name == "Series" || type_name == "Index") && val.hasattr("to_list")? {
+                let list_vals = val.call_method0("to_list")?;
+                return self.serialize_any_optimized(list_vals);
+            } else if (type_name == "Table" || type_name == "RecordBatch")
+                && val.hasattr("to_pylist")?
+            {
+                let records = val.call_method0("to_pylist")?;
+                return self.serialize_any_optimized(records);
             }
         }
 
