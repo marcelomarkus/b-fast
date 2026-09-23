@@ -1,0 +1,15 @@
+/* ⚡ B-FAST Yellow Lightning Bolt Logo */
+.md-logo svg,
+.md-header__button.md-logo svg,
+.md-nav__button.md-logo svg {
+    color: #facc15 !important;
+    fill: #facc15 !important;
+    filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.45));
+    transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.md-logo:hover svg,
+.md-header__button.md-logo:hover svg {
+    transform: scale(1.12);
+    filter: drop-shadow(0 0 12px rgba(250, 204, 21, 0.8));
+}

@@ -1,10 +1,11 @@
 [project]
 site_url = "https://marcelomarkus.github.io/b-fast/"
-site_name = "B-FAST Documentation"
+site_name = "⚡ B-FAST"
 site_description = "⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Ultra-high performance binary serialization protocol in Rust for Python & TypeScript"
 site_author = "Marcelo Markus"
 repo_url = "https://github.com/marcelomarkus/b-fast"
 repo_name = "marcelomarkus/b-fast"
+extra_css = ["stylesheets/extra.css"]
 
 nav = [
   { "Home" = "index.md" },
@@ -49,6 +50,9 @@ features = [
   "search.highlight",
   "search.share",
 ]
+
+[project.theme.icon]
+logo = "fontawesome/solid/bolt"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme)"
