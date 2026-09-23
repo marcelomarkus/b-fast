@@ -146,6 +146,85 @@ const eos = BFastStreamEncoder.getEosFrame();
 
 ## Framework Integrations
 
+### TanStack Query (React Query, Vue Query, Svelte, Solid)
+
+Use `bfastQueryOptions` to wire binary B-FAST endpoints directly into TanStack Query with full type inference, signal forwarding, and optional runtime schema validation:
+
+```typescript
+import { useQuery } from '@tanstack/react-query';
+import { bfastQueryOptions } from 'bfast-client';
+import { z } from 'zod';
+
+const UserSchema = z.object({
+    id: z.number(),
+    name: z.string(),
+    email: z.string().email(),
+});
+type User = z.infer<typeof UserSchema>;
+
+function UserProfile({ userId }: { userId: number }) {
+    const { data: user, isLoading, error } = useQuery(
+        bfastQueryOptions<User>({
+            queryKey: ['user', userId],
+            url: `/api/users/${userId}`,
+            schema: UserSchema, // validates response at runtime
+            staleTime: 10_000,
+        })
+    );
+
+    if (isLoading) return <div>Loading...</div>;
+    return <h1>{user?.name}</h1>;
+}
+```
+
+#### Infinite Query (Pagination & Infinite Scroll)
+
+```typescript
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { bfastInfiniteQueryOptions } from 'bfast-client';
+
+const queryOptions = bfastInfiniteQueryOptions<User[]>({
+    queryKey: ['users', 'infinite'],
+    initialPageParam: 1,
+    getUrl: (page) => `/api/users?page=${page}`,
+    getNextPageParam: (lastPage, allPages, lastParam) => {
+        return lastPage.length === 20 ? (lastParam as number) + 1 : undefined;
+    },
+});
+
+const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(queryOptions);
+```
+
+### Runtime Schema Validation (Zod, Valibot, ArkType, Standard Schema)
+
+`bfast-client` provides universal schema validation conforming to the **Standard Schema** (`~standard`) specification, as well as classic Zod schemas and validator functions:
+
+```typescript
+import { BFastDecoder, bfastFetch, BFastValidationError } from 'bfast-client';
+import { z } from 'zod';
+
+const MetricsSchema = z.object({
+    cpu: z.number(),
+    memory: z.number(),
+    nodes: z.array(z.string()),
+});
+
+// 1. With bfastFetch
+try {
+    const metrics = await bfastFetch('/api/metrics', { schema: MetricsSchema });
+} catch (err) {
+    if (err instanceof BFastValidationError) {
+        console.error('Validation issues:', err.issues);
+    }
+}
+
+// 2. With BFastDecoder
+const metrics = BFastDecoder.decode(binaryBuffer, { schema: MetricsSchema });
+
+// 3. With BFastStreamDecoder (validates every chunk in real-time)
+const streamDecoder = new BFastStreamDecoder({ schema: MetricsSchema });
+```
+
 ### React Hook
 
 ```typescript

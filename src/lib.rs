@@ -868,7 +868,40 @@ impl BFast {
             }
         }
 
-        // 15. Try __dict__ for Pydantic models
+        // 15. DataFrame & Series support (Polars, Pandas, PyArrow) - check BEFORE __dict__
+        if let Ok(type_name) = val.get_type().name() {
+            if type_name == "DataFrame" {
+                if val.hasattr("to_dicts")? {
+                    // Polars DataFrame
+                    let records = val.call_method0("to_dicts")?;
+                    return self.serialize_any_optimized(records);
+                } else if val.hasattr("to_dict")? {
+                    // Pandas DataFrame
+                    let records = val.call_method1("to_dict", ("records",))?;
+                    return self.serialize_any_optimized(records);
+                }
+            } else if type_name == "LazyFrame" {
+                if val.hasattr("collect")? {
+                    let df = val.call_method0("collect")?;
+                    if df.hasattr("to_dicts")? {
+                        let records = df.call_method0("to_dicts")?;
+                        return self.serialize_any_optimized(records);
+                    }
+                }
+            } else if type_name == "Series" || type_name == "Index" {
+                if val.hasattr("to_list")? {
+                    let list_vals = val.call_method0("to_list")?;
+                    return self.serialize_any_optimized(list_vals);
+                }
+            } else if type_name == "Table" || type_name == "RecordBatch" {
+                if val.hasattr("to_pylist")? {
+                    let records = val.call_method0("to_pylist")?;
+                    return self.serialize_any_optimized(records);
+                }
+            }
+        }
+
+        // 16. Try __dict__ for Pydantic models
         if let Ok(dict_attr) = val.getattr("__dict__") {
             if let Ok(dict) = dict_attr.downcast::<PyDict>() {
                 self.work_buffer.push(0x70);

@@ -14,6 +14,7 @@ nav = [
     { "Começando" = "getting_started.md" },
     { "Streaming" = "streaming.md" },
     { "FastMCP & MCP" = "mcp.md" },
+    { "Integrações" = "integrations.md" },
     { "Frontend (TypeScript)" = "frontend.md" },
     { "Otimizações" = "optimizations.md" },
   ]},

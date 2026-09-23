@@ -21,7 +21,7 @@
     "build:esm": "tsc -p tsconfig.esm.json && node -e \"require('fs').writeFileSync('./dist/esm/package.json', '{\\n  \\\"type\\\": \\\"module\\\"\\n}\\n')\"",
     "build": "npm run build:cjs && npm run build:esm",
     "prepare": "npm run build",
-    "test": "npm run build && node --test dist/tests/streaming.test.js dist/tests/type-preservation.test.js",
+    "test": "npm run build && node --test dist/tests/streaming.test.js dist/tests/type-preservation.test.js dist/tests/schema-and-query.test.js",
     "sync-version": "node -e \"const v = require('fs').readFileSync('../Cargo.toml','utf8').match(/^version = \\\"(.*)\\\"/m)[1]; const pkg = require('./package.json'); pkg.version = v; require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\\n');\""
   },
   "keywords": [

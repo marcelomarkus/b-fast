@@ -308,9 +308,10 @@ function decompressBlockLz4(compressedData: Uint8Array): Uint8Array {
     return dst;
 }
 
-export interface DecodeOptions {
+export interface DecodeOptions<T = any> {
     isCompressed?: boolean;
     typedArrays?: boolean;
+    schema?: SchemaValidator<T>;
 }
 
 export class BFastDecoder {
@@ -338,16 +339,18 @@ export class BFastDecoder {
      */
     static decode<T = any>(
         buffer: ArrayBuffer | Uint8Array,
-        optionsOrCompressed?: boolean | DecodeOptions
+        optionsOrCompressed?: boolean | DecodeOptions<T>
     ): T {
         let isCompressed: boolean | undefined;
         let typedArrays = false;
+        let schema: SchemaValidator<T> | undefined;
 
         if (typeof optionsOrCompressed === 'boolean') {
             isCompressed = optionsOrCompressed;
         } else if (optionsOrCompressed) {
             isCompressed = optionsOrCompressed.isCompressed;
             typedArrays = !!optionsOrCompressed.typedArrays;
+            schema = optionsOrCompressed.schema;
         }
 
         let data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -403,7 +406,11 @@ export class BFastDecoder {
         }
 
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-        return new BFastParser(view, typedArrays).parse() as T;
+        const parsed = new BFastParser(view, typedArrays).parse();
+        if (schema) {
+            return validateWithSchema(schema, parsed);
+        }
+        return parsed as T;
     }
 }
 
@@ -414,6 +421,94 @@ export class BFastError extends Error {
     }
 }
 
+export class BFastValidationError extends BFastError {
+    public readonly issues: readonly unknown[];
+
+    constructor(message: string, issues: readonly unknown[] = []) {
+        super(message);
+        this.name = 'BFastValidationError';
+        this.issues = issues;
+    }
+}
+
+/**
+ * Universal schema validator supporting Standard Schema (~standard specification),
+ * Zod (v3.x / v4.x), Valibot (v1.0+), ArkType, and custom validator functions.
+ */
+export type SchemaValidator<T> =
+    | {
+          '~standard': {
+              version: 1;
+              vendor: string;
+              validate: (
+                  value: unknown
+              ) =>
+                  | { value: T; issues?: undefined }
+                  | { issues: readonly unknown[]; value?: unknown }
+                  | Promise<
+                        | { value: T; issues?: undefined }
+                        | { issues: readonly unknown[]; value?: unknown }
+                    >;
+          };
+      }
+    | { safeParse: (data: unknown) => { success: true; data: T } | { success: false; error: any } }
+    | { parse: (data: unknown) => T }
+    | ((data: unknown) => T);
+
+/**
+ * Validates data against a provided schema (Standard Schema, Zod, Valibot, ArkType, or function).
+ * Throws BFastValidationError on failure.
+ */
+export function validateWithSchema<T>(schema: SchemaValidator<T> | undefined, data: unknown): T {
+    if (!schema) return data as T;
+
+    // 1. Standard Schema (~standard specification - Zod 3.24+, Valibot 1.0+, ArkType 2.0+)
+    if (typeof schema === 'object' && schema !== null && '~standard' in schema) {
+        const standard = (schema as any)['~standard'];
+        const result = standard.validate(data);
+        if (result && typeof result.then === 'function') {
+            throw new BFastValidationError(
+                'Async schema validation is not supported in synchronous BFastDecoder.decode().'
+            );
+        }
+        if (result.issues && result.issues.length > 0) {
+            const msg = result.issues
+                .map((i: any) => i.message || JSON.stringify(i))
+                .join('; ');
+            throw new BFastValidationError(`Schema validation failed: ${msg}`, result.issues);
+        }
+        return result.value as T;
+    }
+
+    // 2. Classic Zod safeParse
+    if (typeof (schema as any).safeParse === 'function') {
+        const result = (schema as any).safeParse(data);
+        if (!result.success) {
+            const issues = result.error?.issues || [result.error];
+            const msg = issues.map((i: any) => i.message || String(i)).join('; ');
+            throw new BFastValidationError(`Schema validation failed: ${msg}`, issues);
+        }
+        return result.data as T;
+    }
+
+    // 3. Classic parse
+    if (typeof (schema as any).parse === 'function') {
+        try {
+            return (schema as any).parse(data) as T;
+        } catch (err: any) {
+            const issues = err?.issues || [err];
+            throw new BFastValidationError(err.message || 'Schema validation failed', issues);
+        }
+    }
+
+    // 4. Custom validator function
+    if (typeof schema === 'function') {
+        return (schema as (val: unknown) => T)(data);
+    }
+
+    return data as T;
+}
+
 export const STREAM_MAGIC = 0x4253; // 'BS'
 export const STREAM_VERSION = 0x01;
 export const FRAME_EOS = 0x00;
@@ -421,13 +516,14 @@ export const FRAME_DATA = 0x01;
 export const FRAME_DICT_DELTA = 0x02;
 export const DEFAULT_MAX_FRAME_SIZE = 64 * 1024 * 1024; // 64 MB
 
-export interface StreamDecodeOptions {
+export interface StreamDecodeOptions<T = any> {
     maxFrameSize?: number;
     expectHandshake?: boolean;
     typedArrays?: boolean;
+    schema?: SchemaValidator<T>;
 }
 
-export class BFastStreamDecoder {
+export class BFastStreamDecoder<T = any> {
     private buffer: Uint8Array;
     private readPos: number = 0;
     private writePos: number = 0;
@@ -435,18 +531,35 @@ export class BFastStreamDecoder {
     private maxFrameSize: number;
     private expectHandshake?: boolean;
     private typedArrays: boolean;
+    private schema?: SchemaValidator<T>;
     private _isEos: boolean = false;
 
     constructor(
-        maxFrameSize: number = DEFAULT_MAX_FRAME_SIZE,
+        optionsOrMaxFrameSize?: number | StreamDecodeOptions<T>,
         expectHandshake?: boolean,
-        typedArrays?: boolean
+        typedArrays?: boolean,
+        schema?: SchemaValidator<T>
     ) {
         this.buffer = new Uint8Array(8192);
-        this.maxFrameSize = maxFrameSize;
-        this.expectHandshake = expectHandshake;
-        this._handshakeReceived = expectHandshake === false;
-        this.typedArrays = !!typedArrays;
+        if (typeof optionsOrMaxFrameSize === 'number') {
+            this.maxFrameSize = optionsOrMaxFrameSize;
+            this.expectHandshake = expectHandshake;
+            this._handshakeReceived = expectHandshake === false;
+            this.typedArrays = !!typedArrays;
+            this.schema = schema;
+        } else if (optionsOrMaxFrameSize && typeof optionsOrMaxFrameSize === 'object') {
+            this.maxFrameSize = optionsOrMaxFrameSize.maxFrameSize ?? DEFAULT_MAX_FRAME_SIZE;
+            this.expectHandshake = optionsOrMaxFrameSize.expectHandshake;
+            this._handshakeReceived = optionsOrMaxFrameSize.expectHandshake === false;
+            this.typedArrays = !!optionsOrMaxFrameSize.typedArrays;
+            this.schema = optionsOrMaxFrameSize.schema;
+        } else {
+            this.maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+            this.expectHandshake = expectHandshake;
+            this._handshakeReceived = expectHandshake === false;
+            this.typedArrays = !!typedArrays;
+            this.schema = schema;
+        }
     }
 
     get isEos(): boolean {
@@ -564,6 +677,7 @@ export class BFastStreamDecoder {
                 const decoded = BFastDecoder.decode<T>(frameBytes, {
                     isCompressed,
                     typedArrays: this.typedArrays,
+                    schema: this.schema as any,
                 });
                 results.push(decoded);
             } else if (frameType === FRAME_DICT_DELTA) {
@@ -814,10 +928,11 @@ export class BFastStreamEncoder {
     }
 }
 
-export interface BFastFetchOptions extends Omit<RequestInit, 'body'> {
+export interface BFastFetchOptions<T = any> extends Omit<RequestInit, 'body'> {
     body?: any;
     compress?: boolean;
     typedArrays?: boolean;
+    schema?: SchemaValidator<T>;
 }
 
 /**
@@ -827,7 +942,7 @@ export interface BFastFetchOptions extends Omit<RequestInit, 'body'> {
  */
 export async function bfastFetch<T = any>(
     input: RequestInfo | URL,
-    init?: BFastFetchOptions
+    init?: BFastFetchOptions<T>
 ): Promise<T> {
     const headers = new Headers(init?.headers);
     if (!headers.has('Accept')) {
@@ -864,18 +979,17 @@ export async function bfastFetch<T = any>(
     }
 
     const buffer = await response.arrayBuffer();
-    return BFastDecoder.decode<T>(buffer, { typedArrays: init?.typedArrays });
+    return BFastDecoder.decode<T>(buffer, {
+        typedArrays: init?.typedArrays,
+        schema: init?.schema,
+    });
 }
 
 export async function* decodeReadableStream<T = any>(
     stream: ReadableStream<Uint8Array>,
-    options?: StreamDecodeOptions
+    options?: StreamDecodeOptions<T>
 ): AsyncGenerator<T, void, unknown> {
-    const decoder = new BFastStreamDecoder(
-        options?.maxFrameSize,
-        options?.expectHandshake,
-        options?.typedArrays
-    );
+    const decoder = new BFastStreamDecoder<T>(options);
     const reader = stream.getReader();
     try {
         while (true) {
@@ -896,13 +1010,9 @@ export async function* decodeReadableStream<T = any>(
 
 export async function* decodeNodeStream<T = any>(
     stream: any,
-    options?: StreamDecodeOptions
+    options?: StreamDecodeOptions<T>
 ): AsyncGenerator<T, void, unknown> {
-    const decoder = new BFastStreamDecoder(
-        options?.maxFrameSize,
-        options?.expectHandshake,
-        options?.typedArrays
-    );
+    const decoder = new BFastStreamDecoder<T>(options);
     for await (const chunk of stream) {
         const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
         const items = decoder.feed<T>(bytes);
@@ -915,7 +1025,7 @@ export async function* decodeNodeStream<T = any>(
 
 export async function* decodeStream<T = any>(
     stream: any,
-    options?: StreamDecodeOptions
+    options?: StreamDecodeOptions<T>
 ): AsyncGenerator<T, void, unknown> {
     if (stream && typeof stream.getReader === 'function') {
         yield* decodeReadableStream<T>(stream, options);
@@ -991,6 +1101,126 @@ export function decodeMcpResource<T = any>(
     }
 
     throw new BFastError('Unsupported MCP resource format for B-FAST decoding');
+}
+
+/**
+ * Configuration options for TanStack Query (React Query, Vue Query, Svelte Query, Solid Query).
+ */
+export interface BFastQueryOptionsInput<TData, TError = Error> {
+    queryKey: readonly unknown[];
+    url: string | URL;
+    fetchOptions?: BFastFetchOptions<TData>;
+    schema?: SchemaValidator<TData>;
+    staleTime?: number;
+    gcTime?: number;
+    enabled?: boolean;
+    retry?: boolean | number | ((failureCount: number, error: TError) => boolean);
+    select?: (data: TData) => any;
+    [key: string]: any;
+}
+
+/**
+ * Creates query options compatible with TanStack Query (React Query v4/v5, Vue Query, etc.).
+ *
+ * Usage with TanStack Query:
+ * ```typescript
+ * import { useQuery } from '@tanstack/react-query';
+ * import { bfastQueryOptions } from 'bfast-client';
+ * import { z } from 'zod';
+ *
+ * const UserSchema = z.object({ id: z.number(), name: z.string() });
+ *
+ * function MyComponent() {
+ *   const { data, isLoading } = useQuery(
+ *     bfastQueryOptions({
+ *       queryKey: ['user', 1],
+ *       url: '/api/users/1',
+ *       schema: UserSchema,
+ *     })
+ *   );
+ * }
+ * ```
+ */
+export function bfastQueryOptions<TData, TError = Error>(
+    options: BFastQueryOptionsInput<TData, TError>
+) {
+    const { url, fetchOptions, schema, queryKey, ...rest } = options;
+    return {
+        queryKey,
+        queryFn: async ({ signal }: { signal?: AbortSignal }) => {
+            return bfastFetch<TData>(url, {
+                ...fetchOptions,
+                signal: signal || fetchOptions?.signal,
+                schema: schema || fetchOptions?.schema,
+            });
+        },
+        ...rest,
+    };
+}
+
+/**
+ * Configuration options for TanStack Infinite Query.
+ */
+export interface BFastInfiniteQueryOptionsInput<TData, TPageParam = unknown, TError = Error> {
+    queryKey: readonly unknown[];
+    getUrl: (pageParam: TPageParam) => string | URL;
+    initialPageParam: TPageParam;
+    getNextPageParam: (
+        lastPage: TData,
+        allPages: TData[],
+        lastPageParam: TPageParam
+    ) => TPageParam | undefined | null;
+    getPreviousPageParam?: (
+        firstPage: TData,
+        allPages: TData[],
+        firstPageParam: TPageParam
+    ) => TPageParam | undefined | null;
+    fetchOptions?: BFastFetchOptions<TData>;
+    schema?: SchemaValidator<TData>;
+    staleTime?: number;
+    gcTime?: number;
+    enabled?: boolean;
+    retry?: boolean | number | ((failureCount: number, error: TError) => boolean);
+    [key: string]: any;
+}
+
+/**
+ * Creates infinite query options compatible with TanStack Query.
+ */
+export function bfastInfiniteQueryOptions<TData, TPageParam = unknown, TError = Error>(
+    options: BFastInfiniteQueryOptionsInput<TData, TPageParam, TError>
+) {
+    const {
+        getUrl,
+        initialPageParam,
+        getNextPageParam,
+        getPreviousPageParam,
+        fetchOptions,
+        schema,
+        queryKey,
+        ...rest
+    } = options;
+    return {
+        queryKey,
+        initialPageParam,
+        getNextPageParam,
+        getPreviousPageParam,
+        queryFn: async ({
+            pageParam,
+            signal,
+        }: {
+            pageParam: TPageParam;
+            signal?: AbortSignal;
+        }) => {
+            const url = getUrl(pageParam);
+            return bfastFetch<TData>(url, {
+                ...fetchOptions,
+                signal: signal || fetchOptions?.signal,
+                schema: schema || fetchOptions?.schema,
+            });
+        },
+        ...rest,
+    };
 }
 
 export { initWasmLz4, initWasmLz4Sync, isWasmEnabled, wasmDecompress, base64ToUint8Array } from './wasm';
