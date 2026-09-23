@@ -1,4 +1,24 @@
 import * as lz4 from 'lz4js';
+import { initWasmLz4Sync, base64ToUint8Array } from './wasm';
+
+const UTF8_DECODER = new TextDecoder();
+
+function decodeUtf8(bytes: Uint8Array): string {
+    const len = bytes.length;
+    // Fast path for short ASCII strings (keys and identifiers)
+    if (len < 32) {
+        let str = '';
+        for (let i = 0; i < len; i++) {
+            const b = bytes[i];
+            if (b >= 128) {
+                return UTF8_DECODER.decode(bytes);
+            }
+            str += String.fromCharCode(b);
+        }
+        return str;
+    }
+    return UTF8_DECODER.decode(bytes);
+}
 
 interface BFastHeader {
     magic: number;
@@ -10,16 +30,20 @@ interface BFastHeader {
 
 class BFastParser {
     private view: DataView;
+    private buffer: Uint8Array;
     private offset: number = 0;
     private header: BFastHeader;
+    private typedArrays: boolean;
 
-    constructor(view: DataView) {
+    constructor(view: DataView, typedArrays: boolean = false) {
         this.view = view;
+        this.buffer = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        this.typedArrays = typedArrays;
         this.header = this.parseHeader();
     }
 
     private parseHeader(): BFastHeader {
-        if (this.view.byteLength < 6) {
+        if (this.buffer.length < 6) {
             throw new BFastError('Buffer too small for B-FAST header');
         }
 
@@ -28,26 +52,26 @@ class BFastParser {
             throw new BFastError('Invalid B-FAST magic number');
         }
 
-        const flags = this.view.getUint8(2);
-        const version = this.view.getUint8(3);
+        const flags = this.buffer[2];
+        const version = this.buffer[3];
         const stringTableCount = this.view.getUint16(4, true);
 
         this.offset = 6;
-        const stringTable: string[] = [];
+        const stringTable: string[] = new Array(stringTableCount);
 
         // Parse string table
         for (let i = 0; i < stringTableCount; i++) {
-            if (this.offset >= this.view.byteLength) {
+            if (this.offset >= this.buffer.length) {
                 throw new BFastError('Unexpected end of buffer in string table');
             }
             
-            const length = this.view.getUint8(this.offset++);
-            if (this.offset + length > this.view.byteLength) {
+            const length = this.buffer[this.offset++];
+            if (this.offset + length > this.buffer.length) {
                 throw new BFastError('String extends beyond buffer');
             }
             
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
-            stringTable.push(new TextDecoder().decode(bytes));
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
+            stringTable[i] = decodeUtf8(bytes);
             this.offset += length;
         }
 
@@ -59,14 +83,14 @@ class BFastParser {
     }
 
     private checkBounds(bytes: number): void {
-        if (this.offset + bytes > this.view.byteLength) {
+        if (this.offset + bytes > this.buffer.length) {
             throw new BFastError('Unexpected end of buffer');
         }
     }
 
     private parseValue(): any {
         this.checkBounds(1);
-        const tag = this.view.getUint8(this.offset++);
+        const tag = this.buffer[this.offset++];
         
         // Null
         if (tag === 0x10) return null;
@@ -100,9 +124,9 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
-            return new TextDecoder().decode(bytes);
+            return decodeUtf8(bytes);
         }
         
         // List/Array
@@ -110,9 +134,9 @@ class BFastParser {
             this.checkBounds(4);
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
-            const array: any[] = [];
+            const array: any[] = new Array(length);
             for (let i = 0; i < length; i++) {
-                array.push(this.parseValue());
+                array[i] = this.parseValue();
             }
             return array;
         }
@@ -120,21 +144,23 @@ class BFastParser {
         // Object start
         if (tag === 0x70) {
             const obj: any = {};
-            while (this.offset < this.view.byteLength && this.view.getUint8(this.offset) !== 0x7F) {
+            const stringTable = this.header.stringTable;
+            const strTableLen = stringTable.length;
+            while (this.offset < this.buffer.length && this.buffer[this.offset] !== 0x7F) {
                 this.checkBounds(4);
                 const keyId = this.view.getUint32(this.offset, true);
                 this.offset += 4;
                 
-                if (keyId >= this.header.stringTable.length) {
+                if (keyId >= strTableLen) {
                     throw new BFastError(`Invalid string table index: ${keyId}`);
                 }
                 
-                const key = this.header.stringTable[keyId];
+                const key = stringTable[keyId];
                 const value = this.parseValue();
                 obj[key] = value;
             }
             
-            if (this.offset >= this.view.byteLength) {
+            if (this.offset >= this.buffer.length) {
                 throw new BFastError('Object not properly terminated');
             }
             
@@ -148,7 +174,7 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.slice(this.offset, this.offset + length);
             this.offset += length;
             return bytes;
         }
@@ -158,14 +184,13 @@ class BFastParser {
             this.checkBounds(4);
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
-            this.checkBounds(length * 8);
+            const byteLen = length * 8;
+            this.checkBounds(byteLen);
             
-            const array = new Float64Array(length);
-            for (let i = 0; i < length; i++) {
-                array[i] = this.view.getFloat64(this.offset, true);
-                this.offset += 8;
-            }
-            return Array.from(array);
+            const slice = this.buffer.slice(this.offset, this.offset + byteLen);
+            this.offset += byteLen;
+            const floatArray = new Float64Array(slice.buffer, slice.byteOffset, length);
+            return this.typedArrays ? floatArray : Array.from(floatArray);
         }
         
         // DateTime (0xD1) - ISO 8601 string
@@ -174,9 +199,9 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
-            const isoString = new TextDecoder().decode(bytes);
+            const isoString = decodeUtf8(bytes);
             return new Date(isoString);
         }
         
@@ -186,9 +211,9 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
-            const isoString = new TextDecoder().decode(bytes);
+            const isoString = decodeUtf8(bytes);
             return new Date(isoString);
         }
         
@@ -198,9 +223,9 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
-            return new TextDecoder().decode(bytes);
+            return decodeUtf8(bytes);
         }
         
         // UUID (0xD4) - hex string
@@ -209,9 +234,9 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
-            const hex = new TextDecoder().decode(bytes);
+            const hex = decodeUtf8(bytes);
             // Format as UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
             return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
         }
@@ -222,13 +247,29 @@ class BFastParser {
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             this.checkBounds(length);
-            const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
+            const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
-            const decimalString = new TextDecoder().decode(bytes);
+            const decimalString = decodeUtf8(bytes);
             return parseFloat(decimalString);
         }
         
         throw new BFastError(`Unknown tag: 0x${tag.toString(16).padStart(2, '0')}`);
+    }
+}
+
+export type DecompressorFn = (compressedData: Uint8Array, uncompressedSize: number) => Uint8Array;
+
+let wasmAutoAttempted = false;
+
+function ensureWasmAutoInit(): void {
+    if (wasmAutoAttempted) return;
+    wasmAutoAttempted = true;
+    try {
+        if (typeof WebAssembly !== 'undefined' && !BFastDecoder.getDecompressor()) {
+            initWasmLz4Sync();
+        }
+    } catch {
+        // Silently fall back to lz4js if WebAssembly is unavailable or restricted by CSP
     }
 }
 
@@ -238,6 +279,21 @@ function decompressBlockLz4(compressedData: Uint8Array): Uint8Array {
     }
     const view = new DataView(compressedData.buffer, compressedData.byteOffset, compressedData.byteLength);
     const uncompressedSize = view.getUint32(0, true);
+
+    // Auto-initialize WebAssembly on first compressed block if no custom decompressor is registered
+    if (!BFastDecoder.getDecompressor()) {
+        ensureWasmAutoInit();
+    }
+
+    const customDecompressor = BFastDecoder.getDecompressor();
+    if (customDecompressor) {
+        try {
+            return customDecompressor(compressedData.subarray(4), uncompressedSize);
+        } catch {
+            // Fall back to pure JS decompressor if custom decompressor fails
+        }
+    }
+
     const dst = new Uint8Array(uncompressedSize);
     const decompressedSize = lz4.decompressBlock(
         compressedData,
@@ -252,14 +308,48 @@ function decompressBlockLz4(compressedData: Uint8Array): Uint8Array {
     return dst;
 }
 
+export interface DecodeOptions {
+    isCompressed?: boolean;
+    typedArrays?: boolean;
+}
+
 export class BFastDecoder {
+    private static _decompressor?: DecompressorFn;
+
+    /**
+     * Register a custom high-performance decompressor (such as WebAssembly).
+     */
+    static setDecompressor(fn: DecompressorFn | undefined): void {
+        this._decompressor = fn;
+    }
+
+    /**
+     * Get the currently registered custom decompressor.
+     */
+    static getDecompressor(): DecompressorFn | undefined {
+        return this._decompressor;
+    }
+
     /**
      * Decode B-FAST binary data to JavaScript objects
      * @param buffer - ArrayBuffer or Uint8Array containing B-FAST data
-     * @param isCompressed - Optional boolean indicating if the data is compressed
+     * @param optionsOrCompressed - Optional boolean indicating if the data is compressed, or DecodeOptions object
      * @returns Decoded JavaScript object
      */
-    static decode(buffer: ArrayBuffer | Uint8Array, isCompressed?: boolean): any {
+    static decode<T = any>(
+        buffer: ArrayBuffer | Uint8Array,
+        optionsOrCompressed?: boolean | DecodeOptions
+    ): T {
+        let isCompressed: boolean | undefined;
+        let typedArrays = false;
+
+        if (typeof optionsOrCompressed === 'boolean') {
+            isCompressed = optionsOrCompressed;
+        } else if (optionsOrCompressed) {
+            isCompressed = optionsOrCompressed.isCompressed;
+            typedArrays = !!optionsOrCompressed.typedArrays;
+        }
+
         let data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 
         // Decompress with LZ4 if explicitly compressed or auto-detected (doesn't start with 'BF' magic)
@@ -313,7 +403,7 @@ export class BFastDecoder {
         }
 
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-        return new BFastParser(view).parse();
+        return new BFastParser(view, typedArrays).parse() as T;
     }
 }
 
@@ -334,6 +424,7 @@ export const DEFAULT_MAX_FRAME_SIZE = 64 * 1024 * 1024; // 64 MB
 export interface StreamDecodeOptions {
     maxFrameSize?: number;
     expectHandshake?: boolean;
+    typedArrays?: boolean;
 }
 
 export class BFastStreamDecoder {
@@ -343,13 +434,19 @@ export class BFastStreamDecoder {
     private _handshakeReceived: boolean = false;
     private maxFrameSize: number;
     private expectHandshake?: boolean;
+    private typedArrays: boolean;
     private _isEos: boolean = false;
 
-    constructor(maxFrameSize: number = DEFAULT_MAX_FRAME_SIZE, expectHandshake?: boolean) {
+    constructor(
+        maxFrameSize: number = DEFAULT_MAX_FRAME_SIZE,
+        expectHandshake?: boolean,
+        typedArrays?: boolean
+    ) {
         this.buffer = new Uint8Array(8192);
         this.maxFrameSize = maxFrameSize;
         this.expectHandshake = expectHandshake;
         this._handshakeReceived = expectHandshake === false;
+        this.typedArrays = !!typedArrays;
     }
 
     get isEos(): boolean {
@@ -376,7 +473,7 @@ export class BFastStreamDecoder {
         this.clear();
     }
 
-    feed(chunk: Uint8Array): any[] {
+    feed<T = any>(chunk: Uint8Array): T[] {
         if (!chunk || chunk.length === 0) {
             return [];
         }
@@ -404,7 +501,7 @@ export class BFastStreamDecoder {
         this.buffer.set(chunk, this.writePos);
         this.writePos += chunk.length;
 
-        const results: any[] = [];
+        const results: T[] = [];
 
         // 1. Process Stream Handshake (if not already handled)
         if (!this._handshakeReceived) {
@@ -464,7 +561,10 @@ export class BFastStreamDecoder {
 
             if (frameType === FRAME_DATA) {
                 const isCompressed = (flags & 0x01) !== 0;
-                const decoded = BFastDecoder.decode(frameBytes, isCompressed);
+                const decoded = BFastDecoder.decode<T>(frameBytes, {
+                    isCompressed,
+                    typedArrays: this.typedArrays,
+                });
                 results.push(decoded);
             } else if (frameType === FRAME_DICT_DELTA) {
                 // Reserved for dictionary delta updates
@@ -481,6 +581,208 @@ export class BFastStreamDecoder {
     }
 }
 
+function compressLz4Payload(uncompressed: Uint8Array): Uint8Array {
+    if (uncompressed.length < 13) {
+        return uncompressed; // Too small for block compression to be worthwhile
+    }
+    const blockBuf = new Uint8Array(lz4.compressBound(uncompressed.length));
+    const hashTable = new Uint32Array(65536);
+    const compLen = lz4.compressBlock(uncompressed, blockBuf, 0, uncompressed.length, hashTable);
+    if (compLen === 0 || compLen >= uncompressed.length) {
+        return uncompressed; // Compression did not yield size savings
+    }
+    const result = new Uint8Array(4 + compLen);
+    const view = new DataView(result.buffer);
+    view.setUint32(0, uncompressed.length, true); // uncompressed size (4B LE)
+    result.set(blockBuf.subarray(0, compLen), 4);
+    return result;
+}
+
+export interface EncodeOptions {
+    compress?: boolean;
+}
+
+export class BFastEncoder {
+    private stringTable: Map<string, number> = new Map();
+    private strings: string[] = [];
+    private buffer: Uint8Array = new Uint8Array(4096);
+    private offset: number = 0;
+    private textEncoder: TextEncoder = new TextEncoder();
+
+    private ensureCapacity(needed: number): void {
+        if (this.offset + needed > this.buffer.length) {
+            const newCap = Math.max(this.buffer.length * 2, this.offset + needed + 4096);
+            const newBuf = new Uint8Array(newCap);
+            newBuf.set(this.buffer.subarray(0, this.offset));
+            this.buffer = newBuf;
+        }
+    }
+
+    private getStringId(key: string): number {
+        let id = this.stringTable.get(key);
+        if (id === undefined) {
+            id = this.strings.length;
+            this.stringTable.set(key, id);
+            this.strings.push(key);
+        }
+        return id;
+    }
+
+    private writeUint8(val: number): void {
+        this.ensureCapacity(1);
+        this.buffer[this.offset++] = val;
+    }
+
+    private writeUint32LE(val: number): void {
+        this.ensureCapacity(4);
+        new DataView(this.buffer.buffer, this.buffer.byteOffset).setUint32(this.offset, val, true);
+        this.offset += 4;
+    }
+
+    private writeInt64LE(val: number | bigint): void {
+        this.ensureCapacity(8);
+        new DataView(this.buffer.buffer, this.buffer.byteOffset).setBigInt64(this.offset, BigInt(val), true);
+        this.offset += 8;
+    }
+
+    private writeFloat64LE(val: number): void {
+        this.ensureCapacity(8);
+        new DataView(this.buffer.buffer, this.buffer.byteOffset).setFloat64(this.offset, val, true);
+        this.offset += 8;
+    }
+
+    private writeBytes(bytes: Uint8Array): void {
+        this.ensureCapacity(bytes.length);
+        this.buffer.set(bytes, this.offset);
+        this.offset += bytes.length;
+    }
+
+    private serializeValue(val: any): void {
+        if (val === null || val === undefined) {
+            this.writeUint8(0x10);
+            return;
+        }
+        if (typeof val === 'boolean') {
+            this.writeUint8(val ? 0x21 : 0x20);
+            return;
+        }
+        if (typeof val === 'number') {
+            if (Number.isInteger(val)) {
+                if (val >= 0 && val <= 7) {
+                    this.writeUint8(0x30 | val);
+                } else {
+                    this.writeUint8(0x38);
+                    this.writeInt64LE(val);
+                }
+            } else {
+                this.writeUint8(0x40);
+                this.writeFloat64LE(val);
+            }
+            return;
+        }
+        if (typeof val === 'bigint') {
+            this.writeUint8(0x38);
+            this.writeInt64LE(val);
+            return;
+        }
+        if (typeof val === 'string') {
+            const bytes = this.textEncoder.encode(val);
+            this.writeUint8(0x50);
+            this.writeUint32LE(bytes.length);
+            this.writeBytes(bytes);
+            return;
+        }
+        if (val instanceof Date) {
+            const iso = val.toISOString();
+            const bytes = this.textEncoder.encode(iso);
+            this.writeUint8(0xD1);
+            this.writeUint32LE(bytes.length);
+            this.writeBytes(bytes);
+            return;
+        }
+        if (val instanceof Float64Array) {
+            this.writeUint8(0x90);
+            this.writeUint32LE(val.length);
+            const byteSlice = new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
+            this.writeBytes(byteSlice);
+            return;
+        }
+        if (val instanceof Uint8Array) {
+            this.writeUint8(0x80);
+            this.writeUint32LE(val.length);
+            this.writeBytes(val);
+            return;
+        }
+        if (Array.isArray(val)) {
+            this.writeUint8(0x60);
+            this.writeUint32LE(val.length);
+            for (let i = 0; i < val.length; i++) {
+                this.serializeValue(val[i]);
+            }
+            return;
+        }
+        if (typeof val === 'object') {
+            this.writeUint8(0x70);
+            const entries = Object.entries(val);
+            for (const [k, v] of entries) {
+                if (v === undefined) continue;
+                const id = this.getStringId(k);
+                this.writeUint32LE(id);
+                this.serializeValue(v);
+            }
+            this.writeUint8(0x7F);
+            return;
+        }
+        throw new BFastError('Unsupported value type for serialization: ' + typeof val);
+    }
+
+    /**
+     * Encode a JavaScript value into B-FAST binary format.
+     * @param data - Any serializable JavaScript value (objects, arrays, primitives, Dates, TypedArrays)
+     * @param options - Optional encoding options (e.g. compress: true)
+     */
+    static encode(data: any, options?: EncodeOptions): Uint8Array {
+        const encoder = new BFastEncoder();
+        encoder.serializeValue(data);
+        const payloadBytes = encoder.buffer.subarray(0, encoder.offset);
+
+        // Build header with string table
+        let headerLen = 6;
+        const encodedStrings: Uint8Array[] = [];
+        for (const str of encoder.strings) {
+            const bytes = encoder.textEncoder.encode(str);
+            encodedStrings.push(bytes);
+            headerLen += 1 + bytes.length;
+        }
+
+        const totalLen = headerLen + payloadBytes.length;
+        const uncompressedBuf = new Uint8Array(totalLen);
+        const view = new DataView(uncompressedBuf.buffer);
+
+        // Header: Magic 'BF' (0x42, 0x46)
+        uncompressedBuf[0] = 0x42;
+        uncompressedBuf[1] = 0x46;
+        uncompressedBuf[2] = 0x00; // flags (uncompressed)
+        uncompressedBuf[3] = 0x01; // version
+        view.setUint16(4, encoder.strings.length, true);
+
+        let hOffset = 6;
+        for (const strBytes of encodedStrings) {
+            uncompressedBuf[hOffset++] = strBytes.length;
+            uncompressedBuf.set(strBytes, hOffset);
+            hOffset += strBytes.length;
+        }
+
+        uncompressedBuf.set(payloadBytes, hOffset);
+
+        if (options?.compress) {
+            return compressLz4Payload(uncompressedBuf);
+        }
+
+        return uncompressedBuf;
+    }
+}
+
 export class BFastStreamEncoder {
     static getHandshake(): Uint8Array {
         return new Uint8Array([0x42, 0x53, STREAM_VERSION, 0x00]);
@@ -490,8 +792,18 @@ export class BFastStreamEncoder {
         return new Uint8Array([0x00, 0x00, 0x00, 0x00, FRAME_EOS, 0x00]);
     }
 
-    static encodeFrame(packetData: Uint8Array): Uint8Array {
-        const isCompressed = packetData.length >= 2 && packetData[0] === 0x42 && packetData[1] === 0x46 ? 0 : 1;
+    /**
+     * Encode a frame for streaming. Accepts either raw B-FAST binary bytes (Uint8Array)
+     * or any JavaScript object, which will be serialized on the fly.
+     */
+    static encodeFrame(objOrBytes: any, compress: boolean = false): Uint8Array {
+        const packetData =
+            objOrBytes instanceof Uint8Array
+                ? objOrBytes
+                : BFastEncoder.encode(objOrBytes, { compress });
+
+        const isCompressed =
+            packetData.length >= 2 && packetData[0] === 0x42 && packetData[1] === 0x46 ? 0 : 1;
         const frame = new Uint8Array(6 + packetData.length);
         const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
         view.setUint32(0, packetData.length, true);
@@ -502,18 +814,75 @@ export class BFastStreamEncoder {
     }
 }
 
-export async function* decodeReadableStream(
+export interface BFastFetchOptions extends Omit<RequestInit, 'body'> {
+    body?: any;
+    compress?: boolean;
+    typedArrays?: boolean;
+}
+
+/**
+ * High-level fetch wrapper for B-FAST endpoints.
+ * Automatically manages Accept/Content-Type headers, serializes request bodies,
+ * and decodes binary B-FAST responses into strongly-typed objects.
+ */
+export async function bfastFetch<T = any>(
+    input: RequestInfo | URL,
+    init?: BFastFetchOptions
+): Promise<T> {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) {
+        headers.set('Accept', 'application/x-bfast, application/octet-stream, */*');
+    }
+
+    let body: BodyInit | null | undefined = undefined;
+    if (init && 'body' in init && init.body !== undefined && init.body !== null) {
+        if (
+            typeof init.body === 'string' ||
+            init.body instanceof ArrayBuffer ||
+            init.body instanceof Uint8Array ||
+            (typeof Blob !== 'undefined' && init.body instanceof Blob) ||
+            (typeof FormData !== 'undefined' && init.body instanceof FormData) ||
+            (typeof URLSearchParams !== 'undefined' && init.body instanceof URLSearchParams)
+        ) {
+            body = init.body as BodyInit;
+        } else {
+            body = BFastEncoder.encode(init.body, { compress: init.compress }) as unknown as BodyInit;
+            if (!headers.has('Content-Type')) {
+                headers.set('Content-Type', 'application/x-bfast');
+            }
+        }
+    }
+
+    const response = await fetch(input, {
+        ...init,
+        headers,
+        body,
+    });
+
+    if (!response.ok) {
+        throw new BFastError(`HTTP error ${response.status}: ${response.statusText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return BFastDecoder.decode<T>(buffer, { typedArrays: init?.typedArrays });
+}
+
+export async function* decodeReadableStream<T = any>(
     stream: ReadableStream<Uint8Array>,
     options?: StreamDecodeOptions
-): AsyncGenerator<any, void, unknown> {
-    const decoder = new BFastStreamDecoder(options?.maxFrameSize, options?.expectHandshake);
+): AsyncGenerator<T, void, unknown> {
+    const decoder = new BFastStreamDecoder(
+        options?.maxFrameSize,
+        options?.expectHandshake,
+        options?.typedArrays
+    );
     const reader = stream.getReader();
     try {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             if (value && value.length > 0) {
-                const items = decoder.feed(value);
+                const items = decoder.feed<T>(value);
                 for (const item of items) {
                     yield item;
                 }
@@ -525,14 +894,18 @@ export async function* decodeReadableStream(
     }
 }
 
-export async function* decodeNodeStream(
+export async function* decodeNodeStream<T = any>(
     stream: any,
     options?: StreamDecodeOptions
-): AsyncGenerator<any, void, unknown> {
-    const decoder = new BFastStreamDecoder(options?.maxFrameSize, options?.expectHandshake);
+): AsyncGenerator<T, void, unknown> {
+    const decoder = new BFastStreamDecoder(
+        options?.maxFrameSize,
+        options?.expectHandshake,
+        options?.typedArrays
+    );
     for await (const chunk of stream) {
         const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-        const items = decoder.feed(bytes);
+        const items = decoder.feed<T>(bytes);
         for (const item of items) {
             yield item;
         }
@@ -540,15 +913,84 @@ export async function* decodeNodeStream(
     }
 }
 
-export async function* decodeStream(
+export async function* decodeStream<T = any>(
     stream: any,
     options?: StreamDecodeOptions
-): AsyncGenerator<any, void, unknown> {
+): AsyncGenerator<T, void, unknown> {
     if (stream && typeof stream.getReader === 'function') {
-        yield* decodeReadableStream(stream, options);
+        yield* decodeReadableStream<T>(stream, options);
     } else if (stream && Symbol.asyncIterator in Object(stream)) {
-        yield* decodeNodeStream(stream, options);
+        yield* decodeNodeStream<T>(stream, options);
     } else {
         throw new BFastError('Input must be a ReadableStream or an async iterable Node.js stream');
     }
 }
+
+/**
+ * Decode B-FAST binary payload from an MCP (Model Context Protocol) tool result,
+ * EmbeddedResource, BlobResourceContents, or base64 string.
+ */
+export function decodeMcpResource<T = any>(
+    resourceOrResult: any,
+    options?: DecodeOptions
+): T {
+    if (!resourceOrResult) {
+        throw new BFastError('Invalid MCP resource: null or undefined');
+    }
+
+    // 1. Direct Uint8Array or ArrayBuffer
+    if (resourceOrResult instanceof Uint8Array || resourceOrResult instanceof ArrayBuffer) {
+        return BFastDecoder.decode<T>(resourceOrResult, options);
+    }
+
+    // 2. Base64 string
+    if (typeof resourceOrResult === 'string') {
+        const bytes = base64ToUint8Array(resourceOrResult);
+        return BFastDecoder.decode<T>(bytes, options);
+    }
+
+    // 3. Object with content or contents array (CallToolResult)
+    const contentList = resourceOrResult.content || resourceOrResult.contents;
+    if (Array.isArray(contentList)) {
+        return decodeMcpResource<T>(contentList, options);
+    }
+
+    // 4. Array of content items
+    if (Array.isArray(resourceOrResult)) {
+        for (const item of resourceOrResult) {
+            if (item && item.resource) {
+                const res = item.resource;
+                const mime = res.mimeType || res.mime_type || '';
+                const uri = res.uri || '';
+                if (mime.includes('bfast') || uri.includes('bfast') || uri.startsWith('bfast://')) {
+                    if (res.blob) {
+                        return decodeMcpResource<T>(res.blob, options);
+                    }
+                }
+            } else if (item && item.content) {
+                return decodeMcpResource<T>(item.content, options);
+            }
+        }
+        // Fallback: check any item with resource.blob
+        for (const item of resourceOrResult) {
+            if (item && item.resource && item.resource.blob) {
+                return decodeMcpResource<T>(item.resource.blob, options);
+            }
+        }
+        throw new BFastError('No B-FAST resource found in MCP content array');
+    }
+
+    // 5. EmbeddedResource
+    if (resourceOrResult.resource && resourceOrResult.resource.blob) {
+        return decodeMcpResource<T>(resourceOrResult.resource.blob, options);
+    }
+
+    // 6. BlobResourceContents
+    if (resourceOrResult.blob) {
+        return decodeMcpResource<T>(resourceOrResult.blob, options);
+    }
+
+    throw new BFastError('Unsupported MCP resource format for B-FAST decoding');
+}
+
+export { initWasmLz4, initWasmLz4Sync, isWasmEnabled, wasmDecompress, base64ToUint8Array } from './wasm';

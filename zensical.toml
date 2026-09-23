@@ -10,7 +10,8 @@ nav = [
   { "Home" = "index.md" },
   { "Guides" = [
     { "Getting Started" = "getting_started.md" },
-    { "Streaming & MCP" = "streaming.md" },
+    { "Streaming" = "streaming.md" },
+    { "FastMCP & MCP" = "mcp.md" },
     { "Frontend (TypeScript)" = "frontend.md" },
     { "Optimizations" = "optimizations.md" },
   ]},

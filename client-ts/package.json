@@ -3,13 +3,23 @@
   "version": "1.5.1",
   "description": "Client for ⚡ B-FAST (Binary Fast Adaptive Serialization Transfer) - Protocolo de serialização binária de ultra-alta performance",
   "main": "./dist/index.js",
+  "module": "./dist/esm/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/index.js"
+    }
+  },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build:cjs": "tsc -p tsconfig.json",
+    "build:esm": "tsc -p tsconfig.esm.json && node -e \"require('fs').writeFileSync('./dist/esm/package.json', '{\\n  \\\"type\\\": \\\"module\\\"\\n}\\n')\"",
+    "build": "npm run build:cjs && npm run build:esm",
     "prepare": "npm run build",
     "test": "npm run build && node --test dist/tests/streaming.test.js dist/tests/type-preservation.test.js",
     "sync-version": "node -e \"const v = require('fs').readFileSync('../Cargo.toml','utf8').match(/^version = \\\"(.*)\\\"/m)[1]; const pkg = require('./package.json'); pkg.version = v; require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\\n');\""

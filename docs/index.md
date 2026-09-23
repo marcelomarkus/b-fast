@@ -37,7 +37,7 @@ B-FAST was born from the recognition that modern applications need more than jus
 
     Continuous binary streaming (`application/x-bfast-stream`), chunked HTTP transfer, and Model Context Protocol (MCP) tool results.
 
-    [:octicons-arrow-right-24: Streaming Guide](streaming.md)
+    [:octicons-arrow-right-24: FastMCP & Streaming Guide](mcp.md)
 
 -   __🐍 FastAPI Integration__
 

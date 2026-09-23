@@ -5,6 +5,13 @@ Ultra-fast binary serialization library with Rust backend.
 """
 
 from ._b_fast import BFast, BFastError
+from .fastmcp import (
+    FastMCPBFast,
+    bfast_resource,
+    bfast_tool,
+    decode_mcp_resource,
+    encode_mcp_resource,
+)
 from .integration import BFastResponse, BFastStreamingResponse
 from .mcp import (
     is_bfast_stream_requested,
@@ -36,4 +43,9 @@ __all__ = [
     "stream_mcp_tool_results",
     "stream_mcp_async_tool_results",
     "is_bfast_stream_requested",
+    "bfast_tool",
+    "bfast_resource",
+    "encode_mcp_resource",
+    "decode_mcp_resource",
+    "FastMCPBFast",
 ]

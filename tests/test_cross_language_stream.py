@@ -56,3 +56,46 @@ def test_cross_language_streaming_roundtrip(tmp_path):
         decoded_from_ts = json.load(f)
 
     assert decoded_from_ts == items
+
+
+def test_cross_language_ts_encode_python_decode(tmp_path):
+    """End-to-end cross-language test: TypeScript encodes packet -> Python decodes packet."""
+    if not shutil.which("node"):
+        pytest.skip("Node.js is not available")
+    if not CLIENT_TS_DIST.exists():
+        pytest.skip(f"TypeScript client not compiled ({CLIENT_TS_DIST} missing)")
+
+    from b_fast import BFast
+
+    items = {
+        "id": 42,
+        "name": "Marcelo",
+        "scores": [10.5, 20.5],
+        "active": True,
+        "role": "admin",
+    }
+
+    packet_file = tmp_path / "ts_packet.bin"
+
+    node_script = f"""
+    const fs = require('fs');
+    const {{ BFastEncoder }} = require('./client-ts/dist/index.js');
+
+    const data = {json.dumps(items)};
+    const bytes = BFastEncoder.encode(data, {{ compress: true }});
+    fs.writeFileSync('{packet_file}', bytes);
+    """
+
+    res = subprocess.run(
+        ["node", "-e", node_script],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, f"Node script failed: {res.stderr}"
+
+    with open(packet_file, "rb") as f:
+        raw_bytes = f.read()
+
+    bf = BFast()
+    decoded = bf.decode_packed(raw_bytes, decompress=True)
+    assert decoded == items

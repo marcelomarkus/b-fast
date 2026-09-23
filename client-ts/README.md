@@ -1,6 +1,10 @@
 # bfast-client
 
-Client ultra-fast binary decoder for ⚡B-FAST format in TypeScript/JavaScript.
+Ultra-fast binary serializer, streaming frame engine, and decoder for the ⚡**B-FAST** format in TypeScript & JavaScript.
+
+Supports **Node.js**, **Browsers**, **Cloudflare Workers**, **Deno**, and **Bun** with **Dual Module (ESM & CJS)** and **Automatic WebAssembly (Wasm) LZ4 Acceleration**.
+
+---
 
 ## Installation
 
@@ -8,150 +12,206 @@ Client ultra-fast binary decoder for ⚡B-FAST format in TypeScript/JavaScript.
 npm install bfast-client
 ```
 
-## Usage
+---
 
-### Basic Decoding
+## Quick Start: `bfastFetch`
+
+The simplest and fastest way to consume or post B-FAST data:
+
+```typescript
+import { bfastFetch } from 'bfast-client';
+
+interface User {
+    id: number;
+    name: string;
+    role: string;
+}
+
+// GET request: sets Accept header and decodes binary response automatically
+const users = await bfastFetch<User[]>('/api/users');
+console.log(users[0].name);
+
+// POST request: automatically serializes JS object to B-FAST binary payload
+const created = await bfastFetch<User>('/api/users', {
+    method: 'POST',
+    body: { name: 'Alice', role: 'admin' },
+    compress: true, // optional LZ4 compression
+});
+```
+
+---
+
+## Encoding & Decoding
+
+### Binary Encoding (`BFastEncoder`)
+
+Serialize native JavaScript objects, dates, arrays, and typed arrays directly to B-FAST binary:
+
+```typescript
+import { BFastEncoder } from 'bfast-client';
+
+const payload = {
+    userId: 42,
+    username: 'alice',
+    tags: ['admin', 'engineering'],
+    createdAt: new Date(),
+    matrix: new Float64Array([1.0, 2.5, 3.8]),
+};
+
+// Raw uncompressed B-FAST bytes (Uint8Array)
+const bytes = BFastEncoder.encode(payload);
+
+// Or with LZ4 compression enabled
+const compressedBytes = BFastEncoder.encode(payload, { compress: true });
+```
+
+### Binary Decoding (`BFastDecoder`)
 
 ```typescript
 import { BFastDecoder } from 'bfast-client';
 
-// Fetch B-FAST data from API
-const response = await fetch('/api/data');
-const buffer = await response.arrayBuffer();
+// Decodes ArrayBuffer or Uint8Array
+const data = BFastDecoder.decode<User>(buffer);
 
-// Decode (automatically handles LZ4 decompression)
-const data = BFastDecoder.decode(buffer);
-console.log(data);
+// Zero-copy TypedArrays for numerical arrays (Float64Array, etc.)
+const fastNumeric = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
-### Error Handling
+---
+
+## 🚀 WebAssembly Acceleration (Zero-Config)
+
+`bfast-client` comes with an embedded **10 KB WebAssembly LZ4 engine** compiled from Rust (`lz4_flex`).
+
+- **Automatic Activation:** Activated lazily on the first compressed block encountered. No bundler plugins, no file loading, and no network requests required!
+- **Transparent Fallback:** If `WebAssembly` is unavailable (e.g. strict CSP), it silently and transparently falls back to pure JavaScript `lz4js`.
+- **Custom Decompressors:** You can inspect status or register custom decompressors:
 
 ```typescript
-import { BFastDecoder, BFastError } from 'bfast-client';
+import { isWasmEnabled, initWasmLz4Sync, BFastDecoder } from 'bfast-client';
 
-try {
-    const data = BFastDecoder.decode(buffer);
-    console.log(data);
-} catch (error) {
-    if (error instanceof BFastError) {
-        console.error('B-FAST decode error:', error.message);
-    } else {
-        console.error('Unexpected error:', error);
-    }
+// Check if Wasm acceleration is currently active
+console.log('Wasm LZ4 active:', isWasmEnabled());
+
+// Optional: explicit manual initialization if desired
+initWasmLz4Sync();
+
+// Custom decompressor hook
+BFastDecoder.setDecompressor((compressedBytes, uncompressedSize) => {
+    // your custom decompression logic
+    return decompressedBytes;
+});
+```
+
+---
+
+## ⚡ Real-Time Streaming (Bidirectional)
+
+Stream data in real-time as chunks arrive over HTTP (`ReadableStream`), WebSockets, or Node.js streams.
+
+### Consuming Streams
+
+```typescript
+import { decodeReadableStream, decodeStream } from 'bfast-client';
+
+// Browser fetch with ReadableStream
+const response = await fetch('/api/telemetry/stream');
+for await (const metric of decodeReadableStream(response.body!)) {
+    console.log('Live metric:', metric);
+}
+
+// Or universal decodeStream for both ReadableStream and Node.js async iterables
+for await (const chunk of decodeStream(response.body!)) {
+    console.log('Received:', chunk);
 }
 ```
+
+### Producing Stream Frames (`BFastStreamEncoder`)
+
+```typescript
+import { BFastStreamEncoder } from 'bfast-client';
+
+// Handshake frame (optional / protocol-level)
+const handshake = BFastStreamEncoder.getHandshake();
+
+// Encode JavaScript objects directly into streaming frames
+const frame1 = BFastStreamEncoder.encodeFrame({ sensorId: 1, temp: 22.4 });
+const frame2 = BFastStreamEncoder.encodeFrame({ sensorId: 2, temp: 23.1 });
+
+// End of Stream frame
+const eos = BFastStreamEncoder.getEosFrame();
+```
+
+---
+
+## Framework Integrations
 
 ### React Hook
 
 ```typescript
 import { useState, useEffect } from 'react';
-import { BFastDecoder } from 'bfast-client';
+import { bfastFetch } from 'bfast-client';
 
-function useBFastData<T>(url: string) {
+export function useBFast<T>(url: string) {
     const [data, setData] = useState<T | null>(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<Error | null>(null);
 
     useEffect(() => {
-        async function fetchData() {
-            try {
-                const response = await fetch(url);
-                const buffer = await response.arrayBuffer();
-                const decoded = BFastDecoder.decode(buffer);
-                setData(decoded);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Unknown error');
-            } finally {
-                setLoading(false);
-            }
-        }
-        fetchData();
+        let active = true;
+        bfastFetch<T>(url)
+            .then(res => { if (active) setData(res); })
+            .catch(err => { if (active) setError(err); })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
     }, [url]);
 
     return { data, loading, error };
 }
 ```
 
-### Axios Integration
+### Axios Interceptor
 
 ```typescript
 import axios from 'axios';
 import { BFastDecoder } from 'bfast-client';
 
-// Configure axios to handle B-FAST responses
 axios.interceptors.response.use(response => {
     if (response.headers['content-type'] === 'application/x-bfast') {
         response.data = BFastDecoder.decode(response.data);
     }
     return response;
 });
-
-// Use normally
-const { data } = await axios.get('/api/users');
-console.log(data); // Already decoded
 ```
 
-### ⚡ Streamable HTTP (Progressive Chunks)
+---
 
-Stream data in real-time as chunks arrive from FastAPI `BFastStreamingResponse`:
+## 🤖 Model Context Protocol (MCP)
+
+Easily consume B-FAST binary tool results and resources from MCP / FastMCP servers:
 
 ```typescript
-import { decodeReadableStream } from 'bfast-client';
+import { decodeMcpResource } from 'bfast-client';
 
-async function streamData() {
-    const response = await fetch('/api/users/stream');
-    
-    // Reads chunks progressivelly from the network without blocking
-    for await (const user of decodeReadableStream(response.body!)) {
-        console.log('Progressive item:', user);
-    }
-}
+// Call tool via MCP client (e.g. @modelcontextprotocol/sdk)
+const result = await mcpClient.callTool({ name: 'query_records', arguments: {} });
+
+// Decodes embedded B-FAST resource automatically into strongly-typed objects
+const data = decodeMcpResource<User[]>(result);
+console.log(data);
 ```
+
+---
 
 ## Supported Types
 
-- **Primitives**: `null`, `boolean`, `number`, `string`
-- **Collections**: `Array`, `Object`
-- **Special Types**: `UUID`, `Date`, NumPy arrays
-- **Compression**: Automatic LZ4 decompression detection
+- **Primitives**: `null`, `boolean`, `number` (small int, int32, int64, float64), `string`
+- **Collections**: `Array`, `Object`, nested structures
+- **Special Types**: `Date`, `UUID`, NumPy typed arrays (`Float64Array`)
+- **String Table**: Automatic string interning for repetitive keys
+- **Compression**: Automatic LZ4 compression & decompression
 
-## Performance
-
-B-FAST provides significant performance improvements over JSON:
-
-- **15x faster** than standard JSON
-- **3x faster** than orjson
-- **80% smaller** payload size
-- **Zero-copy** NumPy array handling
-
-## Browser Compatibility
-
-| Browser | Version |
-|---------|---------|
-| Chrome  | 60+     |
-| Firefox | 55+     |
-| Safari  | 12+     |
-| Edge    | 79+     |
-| Node.js | 14+     |
-
-## API Reference
-
-### `BFastDecoder.decode(buffer)`
-
-Decodes B-FAST binary data to JavaScript objects.
-
-**Parameters:**
-- `buffer` - `ArrayBuffer` or `Uint8Array` containing B-FAST data
-
-**Returns:**
-- Decoded JavaScript object
-
-**Throws:**
-- `BFastError` - If decoding fails
-
-### `BFastError`
-
-Custom error class for B-FAST decoding errors.
+---
 
 ## License
 

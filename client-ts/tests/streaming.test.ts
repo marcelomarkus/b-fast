@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import {
+    BFastDecoder,
+    BFastEncoder,
+    bfastFetch,
     BFastStreamDecoder,
     BFastStreamEncoder,
     decodeStream,
     decodeReadableStream,
+    decodeMcpResource,
     STREAM_VERSION,
     FRAME_DATA,
     FRAME_EOS,
+    initWasmLz4Sync,
+    isWasmEnabled,
 } from '../index';
 
 // Helper to create a dummy valid B-FAST payload
@@ -247,3 +253,192 @@ test('decodeStream with async iterable', async () => {
         }
     }, /Input must be a ReadableStream or an async iterable/);
 });
+
+test('BFastDecoder with DecodeOptions and typedArrays', () => {
+    // Create a payload with tag 0x90 (f64 numpy array): 2 elements [1.5, 2.5]
+    const buf = new Uint8Array(6 + 1 + 4 + 16);
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    // Header
+    buf[0] = 0x42;
+    buf[1] = 0x46;
+    buf[2] = 0x00;
+    buf[3] = 0x01;
+    view.setUint16(4, 0, true); // stringTableCount = 0
+
+    // Tag 0x90
+    buf[6] = 0x90;
+    view.setUint32(7, 2, true); // 2 elements
+    view.setFloat64(11, 1.5, true);
+    view.setFloat64(19, 2.5, true);
+
+    // Default: returns Array of numbers
+    const regular = BFastDecoder.decode(buf);
+    assert.ok(Array.isArray(regular));
+    assert.deepStrictEqual(regular, [1.5, 2.5]);
+
+    // With typedArrays: true -> returns Float64Array
+    const typed = BFastDecoder.decode<Float64Array>(buf, { typedArrays: true });
+    assert.ok(typed instanceof Float64Array);
+    assert.strictEqual(typed.length, 2);
+    assert.strictEqual(typed[0], 1.5);
+    assert.strictEqual(typed[1], 2.5);
+});
+
+test('BFastEncoder round-trip with complex nested object', () => {
+    const original = {
+        id: 42,
+        name: 'Alice',
+        score: 95.5,
+        active: true,
+        tags: ['binary', 'fast'],
+        created: new Date('2026-09-22T10:00:00.000Z'),
+        matrix: new Float64Array([10.5, 20.5]),
+    };
+
+    const encoded = BFastEncoder.encode(original);
+    assert.ok(encoded instanceof Uint8Array);
+    assert.ok(encoded.length > 0);
+
+    const decoded = BFastDecoder.decode(encoded, { typedArrays: true });
+    assert.strictEqual(decoded.id, 42);
+    assert.strictEqual(decoded.name, 'Alice');
+    assert.strictEqual(decoded.score, 95.5);
+    assert.strictEqual(decoded.active, true);
+    assert.deepStrictEqual(decoded.tags, ['binary', 'fast']);
+    assert.ok(decoded.created instanceof Date);
+    assert.strictEqual(decoded.created.toISOString(), '2026-09-22T10:00:00.000Z');
+    assert.ok(decoded.matrix instanceof Float64Array);
+    assert.strictEqual(decoded.matrix[0], 10.5);
+    assert.strictEqual(decoded.matrix[1], 20.5);
+});
+
+test('BFastEncoder with compress option (auto-activates WebAssembly LZ4)', () => {
+    const largeData = {
+        users: Array.from({ length: 200 }, (_, i) => ({
+            id: i,
+            name: `User ${i}`,
+            role: 'developer',
+            status: 'active',
+        })),
+    };
+
+    const uncompressed = BFastEncoder.encode(largeData, { compress: false });
+    const compressed = BFastEncoder.encode(largeData, { compress: true });
+
+    assert.ok(compressed.length < uncompressed.length);
+
+    // Decoding a compressed payload auto-initializes WebAssembly LZ4
+    const decoded = BFastDecoder.decode(compressed);
+    assert.strictEqual(isWasmEnabled(), true);
+    assert.strictEqual(decoded.users.length, 200);
+    assert.strictEqual(decoded.users[0].name, 'User 0');
+    assert.strictEqual(decoded.users[199].name, 'User 199');
+});
+
+test('BFastStreamEncoder.encodeFrame with JS objects', () => {
+    const obj = { message: 'streaming item', count: 123 };
+    const frame = BFastStreamEncoder.encodeFrame(obj);
+
+    const decoder = new BFastStreamDecoder(undefined, false);
+    const items = decoder.feed(frame);
+
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].message, 'streaming item');
+    assert.strictEqual(items[0].count, 123);
+});
+
+test('WebAssembly LZ4 acceleration', () => {
+    const success = initWasmLz4Sync();
+    assert.strictEqual(success, true);
+    assert.strictEqual(isWasmEnabled(), true);
+
+    const largeData = {
+        items: Array.from({ length: 500 }, (_, i) => ({
+            id: i,
+            text: `Repeated sample string for compression testing ${i}`,
+        })),
+    };
+
+    const compressed = BFastEncoder.encode(largeData, { compress: true });
+    // Decode will now use WASM decompressor
+    const decoded = BFastDecoder.decode(compressed);
+    assert.strictEqual(decoded.items.length, 500);
+    assert.strictEqual(decoded.items[499].id, 499);
+});
+
+test('bfastFetch helper with mock fetch', async () => {
+    const originalFetch = globalThis.fetch;
+    const testPayload = { id: 100, status: 'ok' };
+    const encodedResponse = BFastEncoder.encode(testPayload);
+
+    let capturedHeaders: Headers | undefined;
+    let capturedBody: any;
+
+    (globalThis as any).fetch = async (_input: any, init?: any) => {
+        capturedHeaders = init?.headers;
+        capturedBody = init?.body;
+        return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            arrayBuffer: async () => encodedResponse.buffer,
+        };
+    };
+
+    try {
+        const result = await bfastFetch<{ id: number; status: string }>('https://api.example.com/data', {
+            method: 'POST',
+            body: { send: 'data' },
+        });
+
+        assert.strictEqual(result.id, 100);
+        assert.strictEqual(result.status, 'ok');
+        assert.ok(capturedHeaders?.get('Accept')?.includes('application/x-bfast'));
+        assert.strictEqual(capturedHeaders?.get('Content-Type'), 'application/x-bfast');
+        assert.ok(capturedBody instanceof Uint8Array);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('decodeMcpResource with MCP tool result and base64 blob', () => {
+    const original = { id: 777, label: 'mcp-test', tags: ['fast', 'mcp'] };
+    const encoded = BFastEncoder.encode(original, { compress: true });
+    const b64 = Buffer.from(encoded).toString('base64');
+
+    // 1. Full MCP CallToolResult object
+    const mcpResult = {
+        content: [
+            { type: 'text', text: '[B-FAST binary payload in embedded resource]' },
+            {
+                type: 'resource',
+                resource: {
+                    uri: 'bfast://tools/query/output',
+                    mimeType: 'application/x-bfast',
+                    blob: b64,
+                },
+            },
+        ],
+    };
+
+    const decoded = decodeMcpResource(mcpResult);
+    assert.strictEqual(decoded.id, 777);
+    assert.strictEqual(decoded.label, 'mcp-test');
+    assert.deepStrictEqual(decoded.tags, ['fast', 'mcp']);
+
+    // 2. Direct array of content items
+    const fromArray = decodeMcpResource(mcpResult.content);
+    assert.deepStrictEqual(fromArray, original);
+
+    // 3. EmbeddedResource directly
+    const fromResource = decodeMcpResource(mcpResult.content[1]);
+    assert.deepStrictEqual(fromResource, original);
+
+    // 4. Base64 string directly
+    const fromB64 = decodeMcpResource(b64);
+    assert.deepStrictEqual(fromB64, original);
+});
+
+
+
+
