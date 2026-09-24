@@ -165,3 +165,120 @@ def test_fallback_dummy_classes():
     # Restore normal state
     importlib.reload(integration_module)
     assert integration_module.FASTAPI_AVAILABLE is True
+
+
+def test_is_bfast_requested_helper():
+    from b_fast.fastapi import is_bfast_requested
+
+    # Dict/Mapping
+    assert is_bfast_requested({"accept": "application/vnd.bfast"}) is True
+    assert is_bfast_requested({"accept": "application/x-bfast"}) is True
+    assert (
+        is_bfast_requested({"accept": "application/vnd.bfast;q=0.9, text/html"}) is True
+    )
+    assert is_bfast_requested({"accept": "application/json"}) is False
+    assert is_bfast_requested({"accept": "*/*"}) is False
+    assert is_bfast_requested({}) is False
+
+    # ASGI scope
+    assert (
+        is_bfast_requested(
+            {"type": "http", "headers": [(b"accept", b"application/vnd.bfast")]}
+        )
+        is True
+    )
+    assert (
+        is_bfast_requested(
+            {"type": "http", "headers": [(b"accept", b"application/json")]}
+        )
+        is False
+    )
+
+    # Header list
+    assert is_bfast_requested([(b"accept", b"application/x-bfast")]) is True
+    assert is_bfast_requested([("accept", "application/vnd.bfast")]) is True
+    assert is_bfast_requested([("content-type", "application/json")]) is False
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI is not installed")
+def test_bfast_middleware_content_negotiation():
+    from fastapi import HTTPException
+    from fastapi.responses import PlainTextResponse, Response
+
+    from b_fast.fastapi import BFastMiddleware
+
+    app = FastAPI()
+    app.add_middleware(BFastMiddleware, compress=True)
+
+    @app.get("/items")
+    def get_items():
+        return [{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]
+
+    @app.get("/text")
+    def get_text():
+        return PlainTextResponse("pure text")
+
+    @app.get("/explicit", response_class=BFastResponse)
+    def get_explicit():
+        return {"explicit": True}
+
+    @app.get("/error")
+    def get_error():
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    @app.get("/empty")
+    def get_empty():
+        return Response(status_code=204)
+
+    client = TestClient(app)
+    decoder = b_fast.BFast()
+
+    # 1. Default without Accept -> Standard JSON
+    r_default = client.get("/items")
+    assert r_default.status_code == 200
+    assert "application/json" in r_default.headers["content-type"]
+    assert r_default.json() == [
+        {"id": 1, "name": "Item 1"},
+        {"id": 2, "name": "Item 2"},
+    ]
+
+    # 2. With Accept: application/x-bfast -> Auto converted to B-FAST binary
+    r_bfast1 = client.get("/items", headers={"accept": "application/x-bfast"})
+    assert r_bfast1.status_code == 200
+    assert r_bfast1.headers["content-type"] == "application/x-bfast"
+    assert "content-length" in r_bfast1.headers
+    decoded1 = decoder.decode_packed(r_bfast1.content, decompress=True)
+    assert decoded1 == [{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]
+
+    # 3. With Accept: application/vnd.bfast -> Also supported as fallback
+    r_bfast2 = client.get("/items", headers={"accept": "application/vnd.bfast"})
+    assert r_bfast2.status_code == 200
+    assert r_bfast2.headers["content-type"] == "application/x-bfast"
+    decoded2 = decoder.decode_packed(r_bfast2.content, decompress=True)
+    assert decoded2 == [{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]
+
+    # 4. Non-JSON response passes through untouched
+    r_text = client.get("/text", headers={"accept": "application/x-bfast"})
+    assert r_text.status_code == 200
+    assert "text/plain" in r_text.headers["content-type"]
+    assert r_text.content == b"pure text"
+
+    # 5. Explicit BFastResponse passes through untouched
+    r_explicit = client.get("/explicit", headers={"accept": "application/x-bfast"})
+    assert r_explicit.status_code == 200
+    assert r_explicit.headers["content-type"] == "application/x-bfast"
+    assert decoder.decode_packed(r_explicit.content, decompress=True) == {
+        "explicit": True
+    }
+
+    # 6. Error response (404) also converts to B-FAST if requested
+    r_err = client.get("/error", headers={"accept": "application/x-bfast"})
+    assert r_err.status_code == 404
+    assert r_err.headers["content-type"] == "application/x-bfast"
+    assert decoder.decode_packed(r_err.content, decompress=True) == {
+        "detail": "Resource not found"
+    }
+
+    # 7. Status 204 No Content passes through untouched
+    r_empty = client.get("/empty", headers={"accept": "application/x-bfast"})
+    assert r_empty.status_code == 204

@@ -114,34 +114,58 @@ npm install bfast-client
 
 ### Backend (Python)
 
-#### 1. FastAPI (Direct Integration) ⭐ Recommended
-B-FAST includes a built-in `BFastResponse` for seamless integration.
+#### 1. FastAPI Integrations ⭐
+
+B-FAST supports two integration styles for FastAPI:
+
+##### Option A: Transparent Content Negotiation (`BFastMiddleware`)
+Zero-code route refactoring. Existing routes return JSON by default, but automatically return compressed B-FAST binary when requested by clients via `Accept: application/x-bfast`:
+
+```python
+from fastapi import FastAPI
+from b_fast.fastapi import BFastMiddleware
+
+app = FastAPI()
+app.add_middleware(BFastMiddleware, compress=True)
+
+
+@app.get("/users")
+def get_users():
+    # Returns standard JSON to browsers
+    # Automatically returns B-FAST binary when requested via Accept: application/x-bfast!
+    return [{"id": i, "name": f"User {i}"} for i in range(1000)]
+```
+
+##### Option B: Direct Route Integration (`BFastResponse` & `BFastStreamingResponse`)
+Explicit route control without middleware:
 
 ```python
 from fastapi import FastAPI
 from pydantic import BaseModel
-from b_fast import BFastResponse
+from b_fast import BFastResponse, BFastStreamingResponse
 
 app = FastAPI()
+
 
 class User(BaseModel):
     id: int
     name: str
 
+
+# 1. Explicit B-FAST binary response
 @app.get("/users", response_class=BFastResponse)
 async def get_users():
     # Returns binary B-FAST data with automatic LZ4 compression
     return [User(id=i, name=f"User {i}") for i in range(1000)]
 
-# ⚡ Streamable HTTP (Progressive Chunks)
-from b_fast import BFastStreamingResponse
 
+# 2. ⚡ Streamable HTTP (Progressive Chunks, 3.18M frames/sec)
 @app.get("/users/stream")
 async def stream_users():
     async def user_generator():
         for i in range(1000):
             yield User(id=i, name=f"User {i}")
-    
+
     # Streams framed chunks with Content-Type: application/x-bfast-stream
     return BFastStreamingResponse(user_generator())
 ```
