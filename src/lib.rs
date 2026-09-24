@@ -8,7 +8,6 @@ use pyo3::types::{PyAny, PyBytes, PyDict, PyFrozenSet, PyList, PySet, PyString, 
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
-use std::mem;
 use std::ptr;
 
 mod errors;
@@ -33,8 +32,10 @@ pub struct BFast {
     string_table: AHashMap<String, u32>,
     next_id: u32,
     work_buffer: Vec<u8>,
-    key_cache: [Option<(u32, u32)>; 64],
-    cache_index: usize,
+    payload_buffer: Vec<u8>,
+    compressed_buffer: Vec<u8>,
+    frame_buffer: Vec<u8>,
+    key_cache: [Option<(u64, u32)>; 64],
     recursion_depth: usize,
     last_was_compressed: bool,
 }
@@ -54,101 +55,49 @@ impl BFast {
             string_table: AHashMap::with_capacity(1024),
             next_id: 0,
             work_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
+            payload_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
+            compressed_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
+            frame_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
             key_cache: [None; 64],
-            cache_index: 0,
             recursion_depth: 0,
             last_was_compressed: false,
         }
     }
 
     pub fn encode_packed(&mut self, obj: &PyAny, compress: bool) -> PyResult<PyObject> {
-        self.work_buffer.clear();
-        self.recursion_depth = 0;
-
-        // CACHE-ALIGNED pre-allocation
-        let estimated_size = if let Ok(list) = obj.downcast::<PyList>() {
-            let len = list.len();
-            ((len * 48 + 4096) + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1)
+        self.encode_packed_internal(obj, compress)?;
+        let slice = if self.last_was_compressed {
+            &self.compressed_buffer
         } else {
-            8192
+            &self.work_buffer
         };
-
-        if self.work_buffer.capacity() < estimated_size {
-            self.work_buffer.reserve(estimated_size);
-        }
-
-        // Reserve space for header
-        let header_pos = self.work_buffer.len();
-        self.work_buffer.extend_from_slice(&[0u8; 6]);
-
-        // Write string table placeholder (will be filled later)
-        let string_table_pos = self.work_buffer.len();
-
-        // SIMD batch processing for lists
-        if let Ok(list) = obj.downcast::<PyList>() {
-            if list.len() > 8 {
-                if let Ok(()) = self.serialize_pydantic_simd_batch(list) {
-                    // Insert string table after header, before payload
-                    let payload = self.work_buffer.split_off(string_table_pos);
-                    self.write_string_table_vectorized()?;
-                    self.work_buffer.extend_from_slice(&payload);
-                    self.write_header_simd(header_pos, compress);
-
-                    let (final_data, was_compressed) = if compress && self.work_buffer.len() > 256 {
-                        if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
-                            (self.compress_parallel(), true)
-                        } else {
-                            (compress_prepend_size(&self.work_buffer), true)
-                        }
-                    } else {
-                        (mem::take(&mut self.work_buffer), false)
-                    };
-                    self.last_was_compressed = was_compressed;
-
-                    return Ok(PyBytes::new(obj.py(), &final_data).into());
-                }
-            }
-        }
-
-        self.serialize_any_optimized(obj)?;
-
-        // Insert string table after header, before payload
-        let payload = self.work_buffer.split_off(string_table_pos);
-        self.write_string_table_vectorized()?;
-        self.work_buffer.extend_from_slice(&payload);
-        self.write_header_simd(header_pos, compress);
-
-        let (final_data, was_compressed) = if compress && self.work_buffer.len() > 256 {
-            if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
-                (self.compress_parallel(), true)
-            } else {
-                (compress_prepend_size(&self.work_buffer), true)
-            }
-        } else {
-            (mem::take(&mut self.work_buffer), false)
-        };
-        self.last_was_compressed = was_compressed;
-
-        Ok(PyBytes::new(obj.py(), &final_data).into())
+        Ok(PyBytes::new(obj.py(), slice).into())
     }
 
     #[pyo3(signature = (obj, *, compress = true))]
     pub fn encode_frame(&mut self, obj: &PyAny, compress: bool) -> PyResult<PyObject> {
         let py = obj.py();
-        let packed_obj = self.encode_packed(obj, compress)?;
-        let packed_bytes = packed_obj.extract::<&PyBytes>(py)?;
-        let data = packed_bytes.as_bytes();
-
+        self.encode_packed_internal(obj, compress)?;
         let is_compressed = if self.last_was_compressed { 1u8 } else { 0u8 };
+        let slice_len = if self.last_was_compressed {
+            self.compressed_buffer.len()
+        } else {
+            self.work_buffer.len()
+        };
+        let len = slice_len as u32;
 
-        let len = data.len() as u32;
-        let mut frame = Vec::with_capacity(6 + data.len());
-        frame.extend_from_slice(&len.to_le_bytes());
-        frame.push(crate::streaming::FRAME_DATA);
-        frame.push(is_compressed);
-        frame.extend_from_slice(data);
+        self.frame_buffer.clear();
+        self.frame_buffer.reserve(6 + slice_len);
+        self.frame_buffer.extend_from_slice(&len.to_le_bytes());
+        self.frame_buffer.push(crate::streaming::FRAME_DATA);
+        self.frame_buffer.push(is_compressed);
+        if self.last_was_compressed {
+            self.frame_buffer.extend_from_slice(&self.compressed_buffer);
+        } else {
+            self.frame_buffer.extend_from_slice(&self.work_buffer);
+        }
 
-        Ok(PyBytes::new(py, &frame).into())
+        Ok(PyBytes::new(py, &self.frame_buffer).into())
     }
 
     #[staticmethod]
@@ -233,6 +182,52 @@ impl BFast {
 }
 
 impl BFast {
+    fn encode_packed_internal(&mut self, obj: &PyAny, compress: bool) -> PyResult<()> {
+        self.work_buffer.clear();
+        self.payload_buffer.clear();
+        self.recursion_depth = 0;
+
+        // Serialize payload into payload_buffer
+        std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
+
+        let serialize_res = if let Ok(list) = obj.downcast::<PyList>() {
+            if list.len() > 8 && self.serialize_pydantic_simd_batch(list).is_ok() {
+                Ok(())
+            } else {
+                self.work_buffer.clear();
+                self.serialize_any_optimized(obj)
+            }
+        } else {
+            self.serialize_any_optimized(obj)
+        };
+
+        std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
+        serialize_res?;
+
+        // Write header + string table to work_buffer, followed by payload
+        self.work_buffer.extend_from_slice(&[0u8; 6]);
+        self.write_string_table_vectorized()?;
+        self.write_header_simd(0, compress);
+        self.work_buffer.extend_from_slice(&self.payload_buffer);
+
+        self.finalize_compression(compress)
+    }
+
+    #[inline(always)]
+    fn finalize_compression(&mut self, compress: bool) -> PyResult<()> {
+        if compress && self.work_buffer.len() > 256 {
+            if self.work_buffer.len() >= PARALLEL_COMPRESSION_THRESHOLD {
+                self.compressed_buffer = self.compress_parallel();
+            } else {
+                self.compressed_buffer = compress_prepend_size(&self.work_buffer);
+            }
+            self.last_was_compressed = true;
+        } else {
+            self.last_was_compressed = false;
+        }
+        Ok(())
+    }
+
     fn compress_parallel(&self) -> Vec<u8> {
         const CHUNK_SIZE: usize = 256 * 1024;
 
@@ -306,29 +301,35 @@ impl BFast {
 
         let dict = first_item.getattr("__dict__")?.downcast::<PyDict>()?;
         let field_keys: Vec<&PyAny> = dict.keys().iter().collect();
-        let field_names: Vec<String> = field_keys.iter().map(|k| k.to_string()).collect();
 
-        let field_ids: Vec<u32> = field_names
+        let field_ids: Vec<u32> = field_keys
             .iter()
-            .map(|name| self.get_or_create_string_id_fast(name))
+            .map(|k| {
+                let name = if let Ok(s) = k.downcast::<PyString>() {
+                    s.to_str().unwrap_or("")
+                } else {
+                    ""
+                };
+                self.get_or_create_string_id_fast(name)
+            })
             .collect();
 
         // Auto-detect: check if first object has complex types
         let use_fast_mode = self.detect_simple_types(dict, &field_keys)?;
 
-        self.ensure_buffer_capacity(5 + len * 50);
+        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 16 + 4));
+
+        // Write list opcode and length
         self.work_buffer.push(0x60);
         self.work_buffer
             .extend_from_slice(&(len as u32).to_le_bytes());
 
-        // Choose serialization path based on type detection
+        // Serialize all items directly into work_buffer (payload_buffer)
         if use_fast_mode {
-            // Fast path: simple types only (int, str, float, bool)
             for item in list.iter() {
                 self.serialize_pydantic_fast(item, &field_keys, &field_ids)?;
             }
         } else {
-            // Complex path: handles datetime, UUID, Decimal, etc.
             for item in list.iter() {
                 self.serialize_pydantic_complex(item, &field_keys, &field_ids)?;
             }
@@ -387,43 +388,28 @@ impl BFast {
 
     #[inline(always)]
     fn serialize_value_fast(&mut self, val: &PyAny) -> PyResult<()> {
-        // Optimized for simple types only
         if val.is_none() {
             self.work_buffer.push(0x10);
             return Ok(());
         }
 
-        if val.is_instance_of::<pyo3::types::PyBool>() {
-            let b = val.extract::<bool>()?;
-            self.work_buffer.push(if b { 0x21 } else { 0x20 });
+        if let Ok(b) = val.downcast::<pyo3::types::PyBool>() {
+            self.work_buffer.push(if b.is_true() { 0x21 } else { 0x20 });
             return Ok(());
         }
 
-        if val.is_instance_of::<pyo3::types::PyLong>() {
-            if let Ok(n) = val.extract::<i32>() {
-                if (0..=7).contains(&n) {
-                    self.work_buffer.push(0x30 | (n as u8));
-                    return Ok(());
-                }
+        if let Ok(l) = val.downcast::<pyo3::types::PyLong>() {
+            let n: i64 = l.extract()?;
+            if (0..=7).contains(&n) {
+                self.work_buffer.push(0x30 | (n as u8));
+            } else {
                 self.work_buffer.push(0x38);
-                self.work_buffer
-                    .extend_from_slice(&(n as i64).to_le_bytes());
-                return Ok(());
+                self.work_buffer.extend_from_slice(&n.to_le_bytes());
             }
-
-            if let Ok(n) = val.extract::<i64>() {
-                if (0..=7).contains(&n) {
-                    self.work_buffer.push(0x30 | (n as u8));
-                } else {
-                    self.work_buffer.push(0x38);
-                    self.work_buffer.extend_from_slice(&n.to_le_bytes());
-                }
-                return Ok(());
-            }
+            return Ok(());
         }
 
-        if val.is_instance_of::<PyString>() {
-            let py_str = val.downcast::<PyString>()?;
+        if let Ok(py_str) = val.downcast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
@@ -434,10 +420,10 @@ impl BFast {
             return Ok(());
         }
 
-        if val.is_instance_of::<pyo3::types::PyFloat>() {
-            let f = val.extract::<f64>()?;
+        if let Ok(f) = val.downcast::<pyo3::types::PyFloat>() {
+            let val = f.value();
             self.work_buffer.push(0x40);
-            self.work_buffer.extend_from_slice(&f.to_le_bytes());
+            self.work_buffer.extend_from_slice(&val.to_le_bytes());
             return Ok(());
         }
 
@@ -487,48 +473,32 @@ impl BFast {
 
     #[inline(always)]
     fn serialize_value_ultra_fast(&mut self, val: &PyAny) -> PyResult<()> {
-        // Fast type checking using pointer comparison
-
-        // None check (fastest)
+        // Fast type checking using direct downcasts
         if val.is_none() {
             self.work_buffer.push(0x10);
             return Ok(());
         }
 
-        // Bool check (before int, as bool is subclass of int)
-        if val.is_instance_of::<pyo3::types::PyBool>() {
-            let b = val.extract::<bool>()?;
-            self.work_buffer.push(if b { 0x21 } else { 0x20 });
+        // Bool check (must come before int)
+        if let Ok(b) = val.downcast::<pyo3::types::PyBool>() {
+            self.work_buffer.push(if b.is_true() { 0x21 } else { 0x20 });
             return Ok(());
         }
 
-        // Int check (most common for IDs)
-        if val.is_instance_of::<pyo3::types::PyLong>() {
-            if let Ok(n) = val.extract::<i32>() {
-                if (0..=7).contains(&n) {
-                    self.work_buffer.push(0x30 | (n as u8));
-                    return Ok(());
-                }
+        // Int check
+        if let Ok(l) = val.downcast::<pyo3::types::PyLong>() {
+            let n: i64 = l.extract()?;
+            if (0..=7).contains(&n) {
+                self.work_buffer.push(0x30 | (n as u8));
+            } else {
                 self.work_buffer.push(0x38);
-                self.work_buffer
-                    .extend_from_slice(&(n as i64).to_le_bytes());
-                return Ok(());
+                self.work_buffer.extend_from_slice(&n.to_le_bytes());
             }
-
-            if let Ok(n) = val.extract::<i64>() {
-                if (0..=7).contains(&n) {
-                    self.work_buffer.push(0x30 | (n as u8));
-                } else {
-                    self.work_buffer.push(0x38);
-                    self.work_buffer.extend_from_slice(&n.to_le_bytes());
-                }
-                return Ok(());
-            }
+            return Ok(());
         }
 
-        // String check (most common for names/emails)
-        if val.is_instance_of::<PyString>() {
-            let py_str = val.downcast::<PyString>()?;
+        // String check
+        if let Ok(py_str) = val.downcast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
@@ -540,10 +510,10 @@ impl BFast {
         }
 
         // Float check
-        if val.is_instance_of::<pyo3::types::PyFloat>() {
-            let f = val.extract::<f64>()?;
+        if let Ok(f) = val.downcast::<pyo3::types::PyFloat>() {
+            let val = f.value();
             self.work_buffer.push(0x40);
-            self.work_buffer.extend_from_slice(&f.to_le_bytes());
+            self.work_buffer.extend_from_slice(&val.to_le_bytes());
             return Ok(());
         }
 
@@ -551,25 +521,26 @@ impl BFast {
         if let Ok(type_name) = val.get_type().name() {
             match type_name {
                 "Decimal" => {
-                    let dec_str = val.str()?.extract::<String>()?;
+                    let dec_str = val.str()?;
+                    let bytes = dec_str.to_str()?.as_bytes();
                     self.work_buffer.push(TAG_DECIMAL);
-                    let bytes = dec_str.as_bytes();
                     self.work_buffer
                         .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                     self.work_buffer.extend_from_slice(bytes);
                     return Ok(());
                 }
                 "UUID" => {
-                    let hex_str = val.getattr("hex")?.extract::<String>()?;
+                    let hex_obj = val.getattr("hex")?;
+                    let bytes = hex_obj.extract::<&str>()?.as_bytes();
                     self.work_buffer.push(TAG_UUID);
-                    let bytes = hex_str.as_bytes();
                     self.work_buffer
                         .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                     self.work_buffer.extend_from_slice(bytes);
                     return Ok(());
                 }
                 "datetime" | "date" | "time" => {
-                    let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
+                    let iso_obj = val.call_method0("isoformat")?;
+                    let bytes = iso_obj.extract::<&str>()?.as_bytes();
                     let tag = match type_name {
                         "datetime" => TAG_DATETIME,
                         "date" => TAG_DATE,
@@ -577,7 +548,6 @@ impl BFast {
                         _ => 0x50,
                     };
                     self.work_buffer.push(tag);
-                    let bytes = iso_str.as_bytes();
                     self.work_buffer
                         .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                     self.work_buffer.extend_from_slice(bytes);
@@ -587,17 +557,10 @@ impl BFast {
             }
         }
 
-        // Enum (extract .value)
-        if val.hasattr("__class__")? {
-            if let Ok(class) = val.getattr("__class__") {
-                if let Ok(bases) = class.getattr("__bases__") {
-                    if let Ok(bases_str) = bases.str() {
-                        if bases_str.to_str()?.contains("Enum") {
-                            let enum_value = val.getattr("value")?;
-                            return self.serialize_value_ultra_fast(enum_value);
-                        }
-                    }
-                }
+        // Enum (extract .value) - fast attribute check
+        if let Ok(enum_val) = val.getattr("value") {
+            if val.hasattr("name")? {
+                return self.serialize_value_ultra_fast(enum_val);
             }
         }
 
@@ -608,20 +571,17 @@ impl BFast {
     fn get_or_create_string_id_fast(&mut self, key_str: &str) -> u32 {
         let mut hasher = AHasher::default();
         key_str.hash(&mut hasher);
-        let hash = hasher.finish() as u32;
+        let hash = hasher.finish();
+        let slot = (hash as usize) & 63;
 
-        // Check cache with hash comparison
-        for i in 0..self.key_cache.len() {
-            if let Some((cached_hash, id)) = self.key_cache[i] {
-                if cached_hash == hash {
-                    return id;
-                }
+        if let Some((cached_hash, id)) = self.key_cache[slot] {
+            if cached_hash == hash {
+                return id;
             }
         }
 
         if let Some(&existing_id) = self.string_table.get(key_str) {
-            self.key_cache[self.cache_index] = Some((hash, existing_id));
-            self.cache_index = (self.cache_index + 1) % self.key_cache.len();
+            self.key_cache[slot] = Some((hash, existing_id));
             return existing_id;
         }
 
@@ -629,9 +589,7 @@ impl BFast {
         self.string_table.insert(key_str.to_owned(), new_id);
         self.next_id += 1;
 
-        self.key_cache[self.cache_index] = Some((hash, new_id));
-        self.cache_index = (self.cache_index + 1) % self.key_cache.len();
-
+        self.key_cache[slot] = Some((hash, new_id));
         new_id
     }
 
@@ -799,6 +757,7 @@ impl BFast {
         if let Ok(array) = val.extract::<PyReadonlyArrayDyn<f64>>() {
             self.work_buffer.push(0x90);
             let raw_data = array.as_slice()?;
+            self.ensure_buffer_capacity(4 + raw_data.len() * 8);
             self.work_buffer
                 .extend_from_slice(&(raw_data.len() as u32).to_le_bytes());
 
@@ -812,9 +771,9 @@ impl BFast {
         // 11. Decimal
         if let Ok(type_name) = val.get_type().name() {
             if type_name == "Decimal" {
-                let dec_str = val.str()?.extract::<String>()?;
+                let dec_str = val.str()?;
+                let bytes = dec_str.to_str()?.as_bytes();
                 self.work_buffer.push(TAG_DECIMAL);
-                let bytes = dec_str.as_bytes();
                 self.work_buffer
                     .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 self.work_buffer.extend_from_slice(bytes);
@@ -824,7 +783,8 @@ impl BFast {
 
         // 12. datetime, date, time (ISO 8601) with type preservation
         if val.hasattr("isoformat")? {
-            let iso_str = val.call_method0("isoformat")?.extract::<String>()?;
+            let iso_obj = val.call_method0("isoformat")?;
+            let iso_str = iso_obj.extract::<&str>()?;
             let type_name = val.get_type().name()?;
 
             let tag = match type_name {
@@ -846,7 +806,8 @@ impl BFast {
         if val.hasattr("hex")? {
             if let Ok(type_name) = val.get_type().name() {
                 if type_name == "UUID" {
-                    let hex_str = val.getattr("hex")?.extract::<String>()?;
+                    let hex_obj = val.getattr("hex")?;
+                    let hex_str = hex_obj.extract::<&str>()?;
                     self.work_buffer.push(TAG_UUID);
                     let bytes = hex_str.as_bytes();
                     self.work_buffer
@@ -858,13 +819,9 @@ impl BFast {
         }
 
         // 14. Enum (extract value) - check BEFORE __dict__
-        if val.hasattr("value")? && val.hasattr("name")? {
-            if let Ok(bases) = val.getattr("__class__")?.getattr("__bases__") {
-                let bases_str = bases.str()?.extract::<String>()?;
-                if bases_str.contains("Enum") {
-                    let enum_value = val.getattr("value")?;
-                    return self.serialize_any_optimized(enum_value);
-                }
+        if let Ok(enum_val) = val.getattr("value") {
+            if val.hasattr("name")? {
+                return self.serialize_any_optimized(enum_val);
             }
         }
 
@@ -1223,11 +1180,11 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             self.check_bounds(length * 8)?;
 
             // Decode to a python list of floats
-            let mut list = Vec::with_capacity(length);
+            let mut list: Vec<PyObject> = Vec::with_capacity(length);
             for _ in 0..length {
                 let val =
                     f64::from_le_bytes(self.data[self.offset..self.offset + 8].try_into().unwrap());
-                list.push(val.into_py(self.py));
+                list.push(pyo3::types::PyFloat::new(self.py, val).into());
                 self.offset += 8;
             }
             return Ok(PyList::new(self.py, list).into());

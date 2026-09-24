@@ -19,3 +19,8 @@ rayon = "1.10"
 
 [build-dependencies]
 maturin = "1.4"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
