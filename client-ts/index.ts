@@ -89,7 +89,9 @@ class BFastParser {
     }
 
     private parseValue(): any {
-        this.checkBounds(1);
+        if (this.offset >= this.buffer.length) {
+            throw new BFastError('Unexpected end of buffer');
+        }
         const tag = this.buffer[this.offset++];
         
         // Null
@@ -101,7 +103,7 @@ class BFastParser {
         
         // Int64 (check BEFORE small integers to avoid 0x38 being caught by 0x3X pattern)
         if (tag === 0x38) {
-            this.checkBounds(8);
+            if (this.offset + 8 > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const value = this.view.getBigInt64(this.offset, true);
             this.offset += 8;
             return Number(value);
@@ -112,7 +114,7 @@ class BFastParser {
         
         // Float64
         if (tag === 0x40) {
-            this.checkBounds(8);
+            if (this.offset + 8 > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const value = this.view.getFloat64(this.offset, true);
             this.offset += 8;
             return value;
@@ -120,10 +122,10 @@ class BFastParser {
         
         // Raw string
         if (tag === 0x50) {
-            this.checkBounds(4);
+            if (this.offset + 4 > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
-            this.checkBounds(length);
+            if (this.offset + length > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const bytes = this.buffer.subarray(this.offset, this.offset + length);
             this.offset += length;
             return decodeUtf8(bytes);
@@ -131,7 +133,7 @@ class BFastParser {
         
         // List/Array
         if (tag === 0x60) {
-            this.checkBounds(4);
+            if (this.offset + 4 > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             const array: any[] = new Array(length);
@@ -146,9 +148,11 @@ class BFastParser {
             const obj: any = {};
             const stringTable = this.header.stringTable;
             const strTableLen = stringTable.length;
-            while (this.offset < this.buffer.length && this.buffer[this.offset] !== 0x7F) {
-                this.checkBounds(4);
-                const keyId = this.view.getUint32(this.offset, true);
+            const buf = this.buffer;
+            const view = this.view;
+            while (this.offset < buf.length && buf[this.offset] !== 0x7F) {
+                if (this.offset + 4 > buf.length) throw new BFastError('Unexpected end of buffer');
+                const keyId = view.getUint32(this.offset, true);
                 this.offset += 4;
                 
                 if (keyId >= strTableLen) {
@@ -156,11 +160,10 @@ class BFastParser {
                 }
                 
                 const key = stringTable[keyId];
-                const value = this.parseValue();
-                obj[key] = value;
+                obj[key] = this.parseValue();
             }
             
-            if (this.offset >= this.buffer.length) {
+            if (this.offset >= buf.length) {
                 throw new BFastError('Object not properly terminated');
             }
             
@@ -170,10 +173,10 @@ class BFastParser {
         
         // Bytes
         if (tag === 0x80) {
-            this.checkBounds(4);
+            if (this.offset + 4 > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
-            this.checkBounds(length);
+            if (this.offset + length > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const bytes = this.buffer.slice(this.offset, this.offset + length);
             this.offset += length;
             return bytes;
@@ -181,15 +184,23 @@ class BFastParser {
         
         // NumPy Array (f64)
         if (tag === 0x90) {
-            this.checkBounds(4);
+            if (this.offset + 4 > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             const length = this.view.getUint32(this.offset, true);
             this.offset += 4;
             const byteLen = length * 8;
-            this.checkBounds(byteLen);
+            if (this.offset + byteLen > this.buffer.length) throw new BFastError('Unexpected end of buffer');
             
-            const slice = this.buffer.slice(this.offset, this.offset + byteLen);
+            const totalByteOffset = this.buffer.byteOffset + this.offset;
+            let floatArray: Float64Array;
+            if ((totalByteOffset & 7) === 0) {
+                // Zero-copy: 8-byte aligned direct view on underlying ArrayBuffer
+                floatArray = new Float64Array(this.buffer.buffer, totalByteOffset, length);
+            } else {
+                // Unaligned fallback: create aligned copy
+                const slice = this.buffer.slice(this.offset, this.offset + byteLen);
+                floatArray = new Float64Array(slice.buffer, slice.byteOffset, length);
+            }
             this.offset += byteLen;
-            const floatArray = new Float64Array(slice.buffer, slice.byteOffset, length);
             return this.typedArrays ? floatArray : Array.from(floatArray);
         }
         

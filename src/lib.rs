@@ -786,7 +786,12 @@ impl BFast {
             self.work_buffer
                 .extend_from_slice(&(len as u32).to_le_bytes());
 
-            for item in list.iter() {
+            let list_ptr = list.as_ptr();
+            let py = val.py();
+            for i in 0..len {
+                let item_ptr =
+                    unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
+                let item = unsafe { py.from_borrowed_ptr::<PyAny>(item_ptr) };
                 self.serialize_any_optimized(item)?;
             }
             return Ok(());
@@ -799,7 +804,12 @@ impl BFast {
             self.work_buffer
                 .extend_from_slice(&(len as u32).to_le_bytes());
 
-            for item in tuple.iter() {
+            let tuple_ptr = tuple.as_ptr();
+            let py = val.py();
+            for i in 0..len {
+                let item_ptr =
+                    unsafe { pyo3::ffi::PyTuple_GetItem(tuple_ptr, i as pyo3::ffi::Py_ssize_t) };
+                let item = unsafe { py.from_borrowed_ptr::<PyAny>(item_ptr) };
                 self.serialize_any_optimized(item)?;
             }
             return Ok(());
@@ -1265,9 +1275,12 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             }
             while self.offset < self.data.len() && self.data[self.offset] != 0x7F {
                 self.check_bounds(4)?;
-                let key_id =
-                    u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
-                        as usize;
+                let key_id = unsafe {
+                    let bytes = std::ptr::read_unaligned(
+                        self.data.as_ptr().add(self.offset) as *const [u8; 4]
+                    );
+                    u32::from_le_bytes(bytes) as usize
+                };
                 self.offset += 4;
 
                 if key_id >= self.string_table.len() {
@@ -1332,9 +1345,11 @@ impl<'a, 'py> BFastParser<'a, 'py> {
         // NumPy Array (f64): decode directly into PyList of PyFloat without intermediate Vec
         if tag == 0x90 {
             self.check_bounds(4)?;
-            let length =
-                u32::from_le_bytes(self.data[self.offset..self.offset + 4].try_into().unwrap())
-                    as usize;
+            let length = unsafe {
+                let bytes =
+                    std::ptr::read_unaligned(self.data.as_ptr().add(self.offset) as *const [u8; 4]);
+                u32::from_le_bytes(bytes) as usize
+            };
             self.offset += 4;
             self.check_bounds(length * 8)?;
 
@@ -1342,10 +1357,16 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             if py_list_ptr.is_null() {
                 return Err(PyErr::fetch(self.py));
             }
+            let data_slice = &self.data[self.offset..self.offset + length * 8];
+            self.offset += length * 8;
+            let mut f_ptr = data_slice.as_ptr();
+
             for i in 0..length {
-                let val =
-                    f64::from_le_bytes(self.data[self.offset..self.offset + 8].try_into().unwrap());
-                self.offset += 8;
+                let val = unsafe {
+                    let val_bytes = std::ptr::read_unaligned(f_ptr as *const [u8; 8]);
+                    f_ptr = f_ptr.add(8);
+                    f64::from_le_bytes(val_bytes)
+                };
                 let float_ptr = unsafe { pyo3::ffi::PyFloat_FromDouble(val) };
                 if float_ptr.is_null() {
                     unsafe { pyo3::ffi::Py_DECREF(py_list_ptr) };
