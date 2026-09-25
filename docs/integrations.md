@@ -4,6 +4,100 @@ B-FAST provides first-class, drop-in integrations for modern Python API framewor
 
 ---
 
+## ⚡ FastAPI & Starlette
+
+B-FAST supports two seamless ways to integrate with [FastAPI](https://fastapi.tiangolo.com/) and [Starlette](https://www.starlette.io/):
+
+---
+
+### Approach 1: With Middleware (`BFastMiddleware`) — Automatic Content Negotiation
+
+**When to use:** You have an existing FastAPI codebase and want to support B-FAST without modifying any route signatures.
+
+`BFastMiddleware` inspects the HTTP `Accept` header. When a client requests `Accept: application/x-bfast`, it automatically serializes the route's response using B-FAST's sub-microsecond Rust engine. Regular web browsers and clients requesting standard JSON continue receiving JSON as usual:
+
+```python
+from fastapi import FastAPI
+from b_fast.fastapi import BFastMiddleware
+
+app = FastAPI()
+
+# Add BFastMiddleware to enable automatic content negotiation across all routes
+app.add_middleware(BFastMiddleware, compress=True)
+
+
+@app.get("/users")
+def get_users():
+    # Regular browsers / curl get standard JSON
+    # B-FAST enabled clients (e.g. bfastFetch) automatically get compressed B-FAST binary!
+    return [{"id": i, "name": f"User {i}"} for i in range(1000)]
+```
+
+---
+
+### Approach 2: Without Middleware (`BFastResponse` & `BFastStreamingResponse`) — Explicit Endpoints
+
+**When to use:** You want explicit control over specific high-performance endpoints, microservices, or real-time event streaming with zero middleware layer overhead.
+
+#### Standard Dictionaries & Streaming
+
+```python
+from fastapi import FastAPI
+from b_fast import BFastResponse, BFastStreamingResponse
+
+app = FastAPI()
+
+
+# 1. Direct binary response for dictionaries and lists
+@app.get("/items", response_class=BFastResponse)
+def get_items():
+    return [{"id": 1, "value": "A"}, {"id": 2, "value": "B"}]
+
+
+# 2. Direct streaming route with response_class
+@app.get("/stream", response_class=BFastStreamingResponse)
+async def stream_items():
+    async def event_generator():
+        for i in range(10):
+            yield {"item": i}
+
+    return event_generator()
+```
+
+#### Native Pydantic Models & High-Frequency Feeds
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+from b_fast.fastapi import BFastResponse, BFastStreamingResponse
+
+app = FastAPI()
+
+
+class SensorData(BaseModel):
+    sensor_id: int
+    temperature: float
+
+
+# Directly serializes Pydantic models in Rust skipping slow .model_dump()
+@app.get("/telemetry", response_class=BFastResponse)
+def get_telemetry():
+    return [SensorData(sensor_id=i, temperature=20.5 + i * 0.1) for i in range(1000)]
+
+
+# Ultra-high-throughput streaming feed (3.18M frames/sec)
+@app.get("/feed")
+def stream_feed():
+    def event_generator():
+        for i in range(100):
+            yield {"step": i, "temperature": 24.5 + i * 0.1}
+
+    # Streams binary framed chunks with Content-Type: application/x-bfast-stream
+    return BFastStreamingResponse(event_generator())
+```
+
+---
+
 ## 🥷 Django Ninja & Django
 
 ### Django Ninja (`BFastRenderer`)
@@ -123,30 +217,3 @@ df_reconstructed = decode_dataframe(data_columns, engine="polars")  # or "pandas
 | `records` (default) | `[ {col1: val1, col2: val2}, ... ]` | REST APIs, TanStack Table, React, Browser UI |
 | `columns` | `{ col1: [val1, ...], col2: [val2, ...] }` | High-volume analytics, microservices, chart buffers |
 | `split` | `{ "columns": [...], "data": [[...], ...] }` | Database exports, pandas compatibility |
-
----
-
-## ⚡ FastAPI & Starlette
-
-For FastAPI and Starlette, B-FAST provides `BFastResponse` and `BFastStreamingResponse`:
-
-```python
-from fastapi import FastAPI
-from b_fast import BFastResponse, BFastStreamingResponse
-
-app = FastAPI()
-
-
-@app.get("/items", response_class=BFastResponse)
-def get_items():
-    return [{"id": 1, "value": "A"}, {"id": 2, "value": "B"}]
-
-
-@app.get("/stream", response_class=BFastStreamingResponse)
-async def stream_items():
-    async def event_generator():
-        for i in range(10):
-            yield {"item": i}
-
-    return event_generator()
-```
