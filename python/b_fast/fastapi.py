@@ -10,8 +10,8 @@ Provides:
 """
 
 import json
-from collections.abc import Sequence
-from typing import Any, Callable, Optional
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from .integration import BFastResponse, BFastStreamingResponse
 
@@ -107,7 +107,7 @@ class BFastMiddleware:
         self,
         app: Any,
         compress: bool = True,
-        accepted_media_types: Optional[Sequence[str]] = None,
+        accepted_media_types: Sequence[str] | None = None,
         media_type: str = "application/x-bfast",
     ) -> None:
         self.app = app
@@ -118,7 +118,7 @@ class BFastMiddleware:
             else DEFAULT_ACCEPTED_MEDIA_TYPES
         )
         self.media_type = media_type
-        self._encoder: Optional[Any] = None
+        self._encoder: Any | None = None
 
     def _get_encoder(self) -> Any:
         if self._encoder is None:
@@ -142,7 +142,7 @@ class BFastMiddleware:
             return
 
         # Client requested B-FAST. Intercept response to check if it's JSON.
-        response_start: Optional[dict[str, Any]] = None
+        response_start: dict[str, Any] | None = None
         is_json_response = False
         body_chunks: list[bytes] = []
 

@@ -9,7 +9,8 @@ from __future__ import annotations
 import base64
 import functools
 import inspect
-from typing import Any, Callable, Union
+from collections.abc import Callable
+from typing import Any
 
 from ._b_fast import BFast, BFastError
 from .mcp import (
@@ -283,9 +284,7 @@ def bfast_tool(
             wrapper = sync_wrapper
 
         if hasattr(wrapper, "__annotations__"):
-            wrapper.__annotations__["return"] = list[
-                Union[TextContent, EmbeddedResource]
-            ]
+            wrapper.__annotations__["return"] = list[TextContent | EmbeddedResource]
 
         return wrapper
 

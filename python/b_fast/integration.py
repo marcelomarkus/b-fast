@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterable, Iterable, Mapping
-from typing import Any, Optional, Union
+from typing import Any
 
 try:
     from fastapi.responses import Response, StreamingResponse
@@ -58,12 +58,12 @@ class BFastStreamingResponse(StreamingResponse):
 
     def __init__(
         self,
-        content: Union[Iterable[Any], AsyncIterable[Any]],
+        content: Iterable[Any] | AsyncIterable[Any],
         compress: bool = True,
         include_handshake: bool = True,
         include_eos: bool = True,
         status_code: int = 200,
-        headers: Optional[Mapping[str, str]] = None,
+        headers: Mapping[str, str] | None = None,
         background: Any = None,
         **kwargs: Any,
     ) -> None:
