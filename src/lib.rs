@@ -58,24 +58,11 @@ impl BFast {
     #[new]
     pub fn new() -> Self {
         Python::with_gil(|py| {
-            let small_ints = [
-                0i64.into_py(py),
-                1i64.into_py(py),
-                2i64.into_py(py),
-                3i64.into_py(py),
-                4i64.into_py(py),
-                5i64.into_py(py),
-                6i64.into_py(py),
-                7i64.into_py(py),
-                8i64.into_py(py),
-                9i64.into_py(py),
-                10i64.into_py(py),
-                11i64.into_py(py),
-                12i64.into_py(py),
-                13i64.into_py(py),
-                14i64.into_py(py),
-                15i64.into_py(py),
-            ];
+            let small_ints = std::array::from_fn(|i| unsafe {
+                pyo3::Bound::from_owned_ptr(py, pyo3::ffi::PyLong_FromLongLong(i as i64))
+                    .into_any()
+                    .unbind()
+            });
             BFast {
                 string_table: AHashMap::with_capacity(1024),
                 string_list: Vec::with_capacity(1024),
@@ -89,25 +76,31 @@ impl BFast {
                 recursion_depth: 0,
                 last_was_compressed: false,
                 py_none: py.None(),
-                py_true: true.into_py(py),
-                py_false: false.into_py(py),
+                py_true: pyo3::types::PyBool::new(py, true)
+                    .to_owned()
+                    .into_any()
+                    .unbind(),
+                py_false: pyo3::types::PyBool::new(py, false)
+                    .to_owned()
+                    .into_any()
+                    .unbind(),
                 small_ints,
             }
         })
     }
 
-    pub fn encode_packed(&mut self, obj: &PyAny, compress: bool) -> PyResult<PyObject> {
+    pub fn encode_packed(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
         self.encode_packed_internal(obj, compress)?;
         let slice = if self.last_was_compressed {
             &self.compressed_buffer
         } else {
             &self.work_buffer
         };
-        Ok(PyBytes::new(obj.py(), slice).into())
+        Ok(PyBytes::new(obj.py(), slice).unbind().into_any())
     }
 
     #[pyo3(signature = (obj, *, compress = true))]
-    pub fn encode_frame(&mut self, obj: &PyAny, compress: bool) -> PyResult<PyObject> {
+    pub fn encode_frame(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
         let py = obj.py();
         self.encode_packed_internal(obj, compress)?;
         let is_compressed = if self.last_was_compressed { 1u8 } else { 0u8 };
@@ -129,12 +122,16 @@ impl BFast {
             self.frame_buffer.extend_from_slice(&self.work_buffer);
         }
 
-        Ok(PyBytes::new(py, &self.frame_buffer).into())
+        Ok(PyBytes::new(py, &self.frame_buffer).unbind().into_any())
     }
 
     #[staticmethod]
     pub fn get_stream_handshake(py: Python) -> PyResult<PyObject> {
-        Ok(PyBytes::new(py, &[0x42, 0x53, crate::streaming::STREAM_VERSION, 0x00]).into())
+        Ok(
+            PyBytes::new(py, &[0x42, 0x53, crate::streaming::STREAM_VERSION, 0x00])
+                .unbind()
+                .into_any(),
+        )
     }
 
     #[staticmethod]
@@ -143,7 +140,8 @@ impl BFast {
             py,
             &[0x00, 0x00, 0x00, 0x00, crate::streaming::FRAME_EOS, 0x00],
         )
-        .into())
+        .unbind()
+        .into_any())
     }
 
     #[pyo3(signature = (bytes, *, decompress = true))]
@@ -250,7 +248,7 @@ impl BFast {
 }
 
 impl BFast {
-    fn encode_packed_internal(&mut self, obj: &PyAny, compress: bool) -> PyResult<()> {
+    fn encode_packed_internal(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<()> {
         self.work_buffer.clear();
         self.payload_buffer.clear();
         self.recursion_depth = 0;
@@ -349,7 +347,7 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn serialize_pydantic_simd_batch(&mut self, list: &PyList) -> PyResult<()> {
+    fn serialize_pydantic_simd_batch(&mut self, list: &Bound<'_, PyList>) -> PyResult<()> {
         let len = list.len();
         if len == 0 {
             self.work_buffer.push(0x60);
@@ -367,8 +365,8 @@ impl BFast {
             ));
         }
 
-        let dict = first_item.getattr("__dict__")?.downcast::<PyDict>()?;
-        let field_keys: Vec<&PyAny> = dict.keys().iter().collect();
+        let dict = first_item.getattr("__dict__")?.downcast_into::<PyDict>()?;
+        let field_keys: Vec<Bound<'_, PyAny>> = dict.keys().into_iter().collect();
 
         let field_ids: Vec<u32> = field_keys
             .iter()
@@ -383,7 +381,7 @@ impl BFast {
             .collect();
 
         // Auto-detect: check if first object has complex types
-        let use_fast_mode = self.detect_simple_types(dict, &field_keys)?;
+        let use_fast_mode = self.detect_simple_types(&dict, &field_keys)?;
 
         self.ensure_buffer_capacity(5 + len * (field_ids.len() * 16 + 4));
 
@@ -395,11 +393,11 @@ impl BFast {
         // Serialize all items directly into work_buffer (payload_buffer)
         if use_fast_mode {
             for item in list.iter() {
-                self.serialize_pydantic_fast(item, &field_keys, &field_ids)?;
+                self.serialize_pydantic_fast(&item, &field_keys, &field_ids)?;
             }
         } else {
             for item in list.iter() {
-                self.serialize_pydantic_complex(item, &field_keys, &field_ids)?;
+                self.serialize_pydantic_complex(&item, &field_keys, &field_ids)?;
             }
         }
 
@@ -408,7 +406,11 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn detect_simple_types(&self, dict: &PyDict, field_keys: &[&PyAny]) -> PyResult<bool> {
+    fn detect_simple_types(
+        &self,
+        dict: &Bound<'_, PyDict>,
+        field_keys: &[Bound<'_, PyAny>],
+    ) -> PyResult<bool> {
         // Check first object's field types
         for key in field_keys {
             if let Some(value) = dict.get_item(key)? {
@@ -417,10 +419,11 @@ impl BFast {
                 }
 
                 // Check for complex types
-                if let Ok("datetime" | "date" | "time" | "UUID" | "Decimal") =
-                    value.get_type().name()
-                {
-                    return Ok(false); // Use complex mode
+                if let Ok(name_obj) = value.get_type().name() {
+                    let type_name = name_obj.to_str().unwrap_or("");
+                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
+                        return Ok(false); // Use complex mode
+                    }
                 }
             }
         }
@@ -430,13 +433,13 @@ impl BFast {
     #[inline(always)]
     fn serialize_pydantic_fast(
         &mut self,
-        obj: &PyAny,
-        field_keys: &[&PyAny],
+        obj: &Bound<'_, PyAny>,
+        field_keys: &[Bound<'_, PyAny>],
         field_ids: &[u32],
     ) -> PyResult<()> {
         self.work_buffer.push(0x70);
 
-        let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
+        let dict = obj.getattr("__dict__")?.downcast_into::<PyDict>()?;
         let dict_ptr = dict.as_ptr();
 
         for (i, key) in field_keys.iter().enumerate() {
@@ -445,8 +448,8 @@ impl BFast {
 
             let item_ptr = unsafe { pyo3::ffi::PyDict_GetItemWithError(dict_ptr, key.as_ptr()) };
             if !item_ptr.is_null() {
-                let value = unsafe { obj.py().from_borrowed_ptr::<PyAny>(item_ptr) };
-                self.serialize_value_fast(value)?;
+                let value = unsafe { Bound::from_borrowed_ptr(obj.py(), item_ptr) };
+                self.serialize_value_fast(&value)?;
             } else {
                 self.work_buffer.push(0x10);
             }
@@ -457,7 +460,7 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn serialize_value_fast(&mut self, val: &PyAny) -> PyResult<()> {
+    fn serialize_value_fast(&mut self, val: &Bound<'_, PyAny>) -> PyResult<()> {
         if val.is_none() {
             self.work_buffer.push(0x10);
             return Ok(());
@@ -468,7 +471,7 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(l) = val.downcast::<pyo3::types::PyLong>() {
+        if let Ok(l) = val.downcast::<pyo3::types::PyInt>() {
             let n: i64 = l.extract()?;
             if (0..=7).contains(&n) {
                 self.work_buffer.push(0x30 | (n as u8));
@@ -524,7 +527,7 @@ impl BFast {
             }
 
             for item in list.iter() {
-                self.serialize_value_fast(item)?;
+                self.serialize_value_fast(&item)?;
             }
             return Ok(());
         }
@@ -536,21 +539,21 @@ impl BFast {
     #[inline(always)]
     fn serialize_pydantic_complex(
         &mut self,
-        obj: &PyAny,
-        field_keys: &[&PyAny],
+        obj: &Bound<'_, PyAny>,
+        field_keys: &[Bound<'_, PyAny>],
         field_ids: &[u32],
     ) -> PyResult<()> {
         // Complex path: handles all types including datetime, UUID, Decimal
         self.work_buffer.push(0x70);
 
-        let dict = obj.getattr("__dict__")?.downcast::<PyDict>()?;
+        let dict = obj.getattr("__dict__")?.downcast_into::<PyDict>()?;
 
         for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
                 .extend_from_slice(&field_ids[i].to_le_bytes());
 
             if let Some(value) = dict.get_item(key)? {
-                self.serialize_value_ultra_fast(value)?;
+                self.serialize_value_ultra_fast(&value)?;
             } else {
                 self.work_buffer.push(0x10);
             }
@@ -561,7 +564,7 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn serialize_value_ultra_fast(&mut self, val: &PyAny) -> PyResult<()> {
+    fn serialize_value_ultra_fast(&mut self, val: &Bound<'_, PyAny>) -> PyResult<()> {
         // Fast type checking using direct downcasts
         if val.is_none() {
             self.work_buffer.push(0x10);
@@ -575,7 +578,7 @@ impl BFast {
         }
 
         // Int check
-        if let Ok(l) = val.downcast::<pyo3::types::PyLong>() {
+        if let Ok(l) = val.downcast::<pyo3::types::PyInt>() {
             let n: i64 = l.extract()?;
             if (0..=7).contains(&n) {
                 self.work_buffer.push(0x30 | (n as u8));
@@ -607,7 +610,8 @@ impl BFast {
         }
 
         // Special types (Decimal, UUID, datetime, etc.)
-        if let Ok(type_name) = val.get_type().name() {
+        if let Ok(name_obj) = val.get_type().name() {
+            let type_name = name_obj.to_str().unwrap_or("");
             match type_name {
                 "Decimal" => {
                     let dec_str = val.str()?;
@@ -649,7 +653,7 @@ impl BFast {
         // Enum (extract .value) - fast attribute check
         if let Ok(enum_val) = val.getattr("value") {
             if val.hasattr("name")? {
-                return self.serialize_value_ultra_fast(enum_val);
+                return self.serialize_value_ultra_fast(&enum_val);
             }
         }
 
@@ -714,7 +718,7 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn serialize_any_optimized(&mut self, val: &PyAny) -> PyResult<()> {
+    fn serialize_any_optimized(&mut self, val: &Bound<'_, PyAny>) -> PyResult<()> {
         if val.is_none() {
             self.work_buffer.push(0x10);
             return Ok(());
@@ -727,7 +731,7 @@ impl BFast {
         }
 
         // 2. PyLong (int)
-        if let Ok(l) = val.downcast::<pyo3::types::PyLong>() {
+        if let Ok(l) = val.downcast::<pyo3::types::PyInt>() {
             if let Ok(n) = l.extract::<i64>() {
                 if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
@@ -772,7 +776,7 @@ impl BFast {
 
                 let id = self.get_or_create_string_id_fast(key_str);
                 self.work_buffer.extend_from_slice(&id.to_le_bytes());
-                self.serialize_any_optimized(v)?;
+                self.serialize_any_optimized(&v)?;
             }
 
             self.work_buffer.push(0x7F);
@@ -791,8 +795,8 @@ impl BFast {
             for i in 0..len {
                 let item_ptr =
                     unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
-                let item = unsafe { py.from_borrowed_ptr::<PyAny>(item_ptr) };
-                self.serialize_any_optimized(item)?;
+                let item = unsafe { Bound::from_borrowed_ptr(py, item_ptr) };
+                self.serialize_any_optimized(&item)?;
             }
             return Ok(());
         }
@@ -809,8 +813,8 @@ impl BFast {
             for i in 0..len {
                 let item_ptr =
                     unsafe { pyo3::ffi::PyTuple_GetItem(tuple_ptr, i as pyo3::ffi::Py_ssize_t) };
-                let item = unsafe { py.from_borrowed_ptr::<PyAny>(item_ptr) };
-                self.serialize_any_optimized(item)?;
+                let item = unsafe { Bound::from_borrowed_ptr(py, item_ptr) };
+                self.serialize_any_optimized(&item)?;
             }
             return Ok(());
         }
@@ -823,7 +827,7 @@ impl BFast {
                 .extend_from_slice(&(len as u32).to_le_bytes());
 
             for item in set.iter() {
-                self.serialize_any_optimized(item)?;
+                self.serialize_any_optimized(&item)?;
             }
             return Ok(());
         }
@@ -835,7 +839,7 @@ impl BFast {
                 .extend_from_slice(&(len as u32).to_le_bytes());
 
             for item in frozenset.iter() {
-                self.serialize_any_optimized(item)?;
+                self.serialize_any_optimized(&item)?;
             }
             return Ok(());
         }
@@ -865,7 +869,8 @@ impl BFast {
         }
 
         // 11. Decimal
-        if let Ok(type_name) = val.get_type().name() {
+        if let Ok(name_obj) = val.get_type().name() {
+            let type_name = name_obj.to_str().unwrap_or("");
             if type_name == "Decimal" {
                 let dec_str = val.str()?;
                 let bytes = dec_str.to_str()?.as_bytes();
@@ -881,7 +886,8 @@ impl BFast {
         if val.hasattr("isoformat")? {
             let iso_obj = val.call_method0("isoformat")?;
             let iso_str = iso_obj.extract::<&str>()?;
-            let type_name = val.get_type().name()?;
+            let type_name_obj = val.get_type().name()?;
+            let type_name = type_name_obj.to_str().unwrap_or("");
 
             let tag = match type_name {
                 "datetime" => TAG_DATETIME,
@@ -900,8 +906,8 @@ impl BFast {
 
         // 13. UUID
         if val.hasattr("hex")? {
-            if let Ok(type_name) = val.get_type().name() {
-                if type_name == "UUID" {
+            if let Ok(type_name_obj) = val.get_type().name() {
+                if type_name_obj.to_str().unwrap_or("") == "UUID" {
                     let hex_obj = val.getattr("hex")?;
                     let hex_str = hex_obj.extract::<&str>()?;
                     self.work_buffer.push(TAG_UUID);
@@ -917,38 +923,39 @@ impl BFast {
         // 14. Enum (extract value) - check BEFORE __dict__
         if let Ok(enum_val) = val.getattr("value") {
             if val.hasattr("name")? {
-                return self.serialize_any_optimized(enum_val);
+                return self.serialize_any_optimized(&enum_val);
             }
         }
 
         // 15. DataFrame & Series support (Polars, Pandas, PyArrow) - check BEFORE __dict__
-        if let Ok(type_name) = val.get_type().name() {
+        if let Ok(name_obj) = val.get_type().name() {
+            let type_name = name_obj.to_str().unwrap_or("");
             if type_name == "DataFrame" {
                 if val.hasattr("to_dicts")? {
                     // Polars DataFrame
                     let records = val.call_method0("to_dicts")?;
-                    return self.serialize_any_optimized(records);
+                    return self.serialize_any_optimized(&records);
                 } else if val.hasattr("to_dict")? {
                     // Pandas DataFrame
                     let records = val.call_method1("to_dict", ("records",))?;
-                    return self.serialize_any_optimized(records);
+                    return self.serialize_any_optimized(&records);
                 }
             } else if type_name == "LazyFrame" {
                 if val.hasattr("collect")? {
                     let df = val.call_method0("collect")?;
                     if df.hasattr("to_dicts")? {
                         let records = df.call_method0("to_dicts")?;
-                        return self.serialize_any_optimized(records);
+                        return self.serialize_any_optimized(&records);
                     }
                 }
             } else if (type_name == "Series" || type_name == "Index") && val.hasattr("to_list")? {
                 let list_vals = val.call_method0("to_list")?;
-                return self.serialize_any_optimized(list_vals);
+                return self.serialize_any_optimized(&list_vals);
             } else if (type_name == "Table" || type_name == "RecordBatch")
                 && val.hasattr("to_pylist")?
             {
                 let records = val.call_method0("to_pylist")?;
-                return self.serialize_any_optimized(records);
+                return self.serialize_any_optimized(&records);
             }
         }
 
@@ -966,7 +973,7 @@ impl BFast {
 
                     let id = self.get_or_create_string_id_fast(key_str);
                     self.work_buffer.extend_from_slice(&id.to_le_bytes());
-                    self.serialize_any_optimized(v)?;
+                    self.serialize_any_optimized(&v)?;
                 }
 
                 self.work_buffer.push(0x7F);
@@ -986,7 +993,7 @@ impl BFast {
 }
 
 #[pymodule]
-fn _b_fast(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _b_fast(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<BFast>()?;
     m.add_class::<streaming::BFastStreamDecoder>()?;
@@ -1061,12 +1068,12 @@ struct BFastParser<'a, 'py> {
     py: Python<'py>,
     data: &'a [u8],
     offset: usize,
-    string_table: &'a [&'py PyString],
-    datetime_fromisoformat: Option<&'py PyAny>,
-    date_fromisoformat: Option<&'py PyAny>,
-    time_fromisoformat: Option<&'py PyAny>,
-    uuid_class: Option<&'py PyAny>,
-    decimal_class: Option<&'py PyAny>,
+    string_table: &'a [Bound<'py, PyString>],
+    datetime_fromisoformat: Option<Bound<'py, PyAny>>,
+    date_fromisoformat: Option<Bound<'py, PyAny>>,
+    time_fromisoformat: Option<Bound<'py, PyAny>>,
+    uuid_class: Option<Bound<'py, PyAny>>,
+    decimal_class: Option<Bound<'py, PyAny>>,
     py_none: &'a PyObject,
     py_true: &'a PyObject,
     py_false: &'a PyObject,
@@ -1075,66 +1082,56 @@ struct BFastParser<'a, 'py> {
 }
 
 impl<'a, 'py> BFastParser<'a, 'py> {
-    fn get_datetime_fromisoformat(&mut self) -> PyResult<&'py PyAny> {
-        if let Some(func) = self.datetime_fromisoformat {
-            Ok(func)
-        } else {
+    fn get_datetime_fromisoformat(&mut self) -> PyResult<&Bound<'py, PyAny>> {
+        if self.datetime_fromisoformat.is_none() {
             let func = self
                 .py
                 .import("datetime")?
                 .getattr("datetime")?
                 .getattr("fromisoformat")?;
             self.datetime_fromisoformat = Some(func);
-            Ok(func)
         }
+        Ok(self.datetime_fromisoformat.as_ref().unwrap())
     }
 
-    fn get_date_fromisoformat(&mut self) -> PyResult<&'py PyAny> {
-        if let Some(func) = self.date_fromisoformat {
-            Ok(func)
-        } else {
+    fn get_date_fromisoformat(&mut self) -> PyResult<&Bound<'py, PyAny>> {
+        if self.date_fromisoformat.is_none() {
             let func = self
                 .py
                 .import("datetime")?
                 .getattr("date")?
                 .getattr("fromisoformat")?;
             self.date_fromisoformat = Some(func);
-            Ok(func)
         }
+        Ok(self.date_fromisoformat.as_ref().unwrap())
     }
 
-    fn get_time_fromisoformat(&mut self) -> PyResult<&'py PyAny> {
-        if let Some(func) = self.time_fromisoformat {
-            Ok(func)
-        } else {
+    fn get_time_fromisoformat(&mut self) -> PyResult<&Bound<'py, PyAny>> {
+        if self.time_fromisoformat.is_none() {
             let func = self
                 .py
                 .import("datetime")?
                 .getattr("time")?
                 .getattr("fromisoformat")?;
             self.time_fromisoformat = Some(func);
-            Ok(func)
         }
+        Ok(self.time_fromisoformat.as_ref().unwrap())
     }
 
-    fn get_uuid_class(&mut self) -> PyResult<&'py PyAny> {
-        if let Some(cls) = self.uuid_class {
-            Ok(cls)
-        } else {
+    fn get_uuid_class(&mut self) -> PyResult<&Bound<'py, PyAny>> {
+        if self.uuid_class.is_none() {
             let cls = self.py.import("uuid")?.getattr("UUID")?;
             self.uuid_class = Some(cls);
-            Ok(cls)
         }
+        Ok(self.uuid_class.as_ref().unwrap())
     }
 
-    fn get_decimal_class(&mut self) -> PyResult<&'py PyAny> {
-        if let Some(cls) = self.decimal_class {
-            Ok(cls)
-        } else {
+    fn get_decimal_class(&mut self) -> PyResult<&Bound<'py, PyAny>> {
+        if self.decimal_class.is_none() {
             let cls = self.py.import("decimal")?.getattr("Decimal")?;
             self.decimal_class = Some(cls);
-            Ok(cls)
         }
+        Ok(self.decimal_class.as_ref().unwrap())
     }
 
     fn check_bounds(&self, size: usize) -> PyResult<()> {
@@ -1291,7 +1288,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     )));
                 }
 
-                let key = self.string_table[key_id];
+                let key = &self.string_table[key_id];
                 match self.parse() {
                     Ok(value) => {
                         let ret = unsafe {
@@ -1396,7 +1393,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self.get_datetime_fromisoformat()?.call1((iso_str,))?;
-            return Ok(obj.into());
+            return Ok(obj.unbind());
         }
 
         // Date (0xD2) - ISO 8601 date string via cached callable
@@ -1416,7 +1413,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self.get_date_fromisoformat()?.call1((iso_str,))?;
-            return Ok(obj.into());
+            return Ok(obj.unbind());
         }
 
         // Time (0xD3) - ISO 8601 time string via cached callable
@@ -1436,7 +1433,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self.get_time_fromisoformat()?.call1((iso_str,))?;
-            return Ok(obj.into());
+            return Ok(obj.unbind());
         }
 
         // UUID (0xD4) via cached class
@@ -1456,7 +1453,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self.get_uuid_class()?.call1((hex_str,))?;
-            return Ok(obj.into());
+            return Ok(obj.unbind());
         }
 
         // Decimal (0xD5) via cached class
@@ -1476,7 +1473,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                 ))
             })?;
             let obj = self.get_decimal_class()?.call1((dec_str,))?;
-            return Ok(obj.into());
+            return Ok(obj.unbind());
         }
 
         Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(

@@ -197,7 +197,7 @@ impl BFastStreamEncoder {
     }
 
     #[pyo3(signature = (obj, *, compress = true))]
-    pub fn encode_frame(&mut self, obj: &PyAny, compress: bool) -> PyResult<PyObject> {
+    pub fn encode_frame(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
         self.b_fast.encode_frame(obj, compress)
     }
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0] - 2026-10-14
+
+### ⚡ Rust Core Performance & PyO3 Bound API
+- **PyO3 0.23 Upgrade**: Upgraded `pyo3` and companion `numpy` crate to version `0.23`.
+- **Bound API Migration**: Fully migrated Rust engine (`BFast`, `BFastParser`, `BFastStreamEncoder`) to use `Bound<'py, T>` smart pointers, eliminating atomic refcount manipulation (`Py_INCREF`/`Py_DECREF`) across all serialization and deserialization loops.
+- **Inlined Traversal**: Enhanced inlining in list, dict, and Pydantic batch encoders.
+- **Direct PyInt Usage**: Replaced deprecated `PyLong` with `PyInt` across primitive types.
+
 ## [1.8.0] - 2026-10-14
 
 ### 🔄 Python Version Support & Modernization
