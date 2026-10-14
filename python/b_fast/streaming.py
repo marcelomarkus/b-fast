@@ -1,6 +1,6 @@
 import inspect
-from collections.abc import AsyncIterable, Iterable
-from typing import Any, AsyncGenerator, Generator, Optional
+from collections.abc import AsyncGenerator, AsyncIterable, Generator, Iterable
+from typing import Any
 
 from ._b_fast import (
     BFastStreamDecoder as _RustBFastStreamDecoder,
@@ -79,8 +79,8 @@ class BFastStreamDecoder:
 
     def __init__(
         self,
-        max_frame_size: Optional[int] = None,
-        expect_handshake: Optional[bool] = None,
+        max_frame_size: int | None = None,
+        expect_handshake: bool | None = None,
     ) -> None:
         kwargs: dict[str, Any] = {}
         if max_frame_size is not None:

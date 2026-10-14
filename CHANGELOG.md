@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - 2026-10-14
+
+### 🔄 Python Version Support & Modernization
+- **Python Support**: Dropped end-of-life Python 3.8 and 3.9 support. Minimum supported version is now **Python 3.10+**.
+- **Forward Compatibility**: Added support classifiers and testing baseline for Python 3.10, 3.11, 3.12, 3.13, 3.14, and 3.15.
+- **PyO3 abi3**: Upgraded Rust PyO3 ABI3 stable target feature to `abi3-py310`.
+- **Tooling**: Updated Black and Ruff target versions to `py310`.
+- **Cleaned Dependencies**: Removed redundant environment markers for `python_version >= '3.10'` in optional dependencies.
+
 ## [1.4.0] - 2026-09-21
 
 ### 🚀 Features

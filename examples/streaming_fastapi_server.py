@@ -7,8 +7,8 @@ Executar com:
 
 import asyncio
 import uuid
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Generator
 
 import numpy as np
 from fastapi import FastAPI, Request

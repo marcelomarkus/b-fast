@@ -8,7 +8,7 @@ Provides:
 """
 
 from collections.abc import AsyncIterable, Iterable
-from typing import Any, Optional, Union
+from typing import Any
 
 try:
     from django.http import HttpResponse, StreamingHttpResponse
@@ -30,7 +30,7 @@ NINJA_AVAILABLE = False
 
 
 class BaseRenderer:  # type: ignore[no-redef]
-    media_type: Optional[str] = None
+    media_type: str | None = None
     charset: str = "utf-8"
 
     def render(self, request: Any, data: Any, *, response_status: int = 200) -> Any:
@@ -86,7 +86,7 @@ class BFastRenderer(BaseRenderer):
                     "Install it with 'pip install bfast-py[django]' or 'pip install django-ninja'."
                 ) from None
         self.compress = compress
-        self._encoder: Optional[Any] = None
+        self._encoder: Any | None = None
 
     def render(self, request: Any, data: Any, *, response_status: int = 200) -> bytes:
         if data is None:
@@ -171,7 +171,7 @@ class BFastStreamingHttpResponse(StreamingHttpResponse):
 
     def __init__(
         self,
-        streaming_content: Union[Iterable[Any], AsyncIterable[Any]],
+        streaming_content: Iterable[Any] | AsyncIterable[Any],
         compress: bool = True,
         include_handshake: bool = True,
         include_eos: bool = True,

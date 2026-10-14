@@ -32,7 +32,7 @@ def test_encode_and_decode_mcp_resource():
     assert "[B-FAST binary payload" in items[0].text
     assert isinstance(items[1], types.EmbeddedResource)
     assert items[1].resource.mime_type == BFAST_MIME_TYPE
-    assert items[1].resource.uri == "bfast://test/1"
+    assert str(items[1].resource.uri) == "bfast://test/1"
 
     # Decode directly from the list of content items
     decoded = decode_mcp_resource(items)
