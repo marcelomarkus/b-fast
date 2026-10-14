@@ -7,6 +7,7 @@ Ultra-fast binary serialization library with Rust backend.
 from ._b_fast import BFast, BFastError
 from .data import decode_dataframe, encode_dataframe
 from .django import BFastHttpResponse, BFastRenderer, BFastStreamingHttpResponse
+from .fastapi import BFastMiddleware, is_bfast_requested
 from .fastmcp import (
     FastMCPBFast,
     bfast_resource,
@@ -39,6 +40,8 @@ __all__ = [
     "BFastError",
     "BFastResponse",
     "BFastStreamingResponse",
+    "BFastMiddleware",
+    "is_bfast_requested",
     "BFastRenderer",
     "BFastHttpResponse",
     "BFastStreamingHttpResponse",

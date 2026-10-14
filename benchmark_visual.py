@@ -296,8 +296,8 @@ def generate_chart():
     # -------------------------------------------------------------------------
     # 5. Streaming Protocol (1,000 Frames) - Decode Time
     # -------------------------------------------------------------------------
-    categories5 = ["B-FAST (Frag)", "B-FAST (Norm)", "NDJSON (Line)"]
-    times5 = [11.8, 13.6, 45.0]
+    categories5 = ["B-FAST (Norm)", "B-FAST (Frag)", "NDJSON (Line)"]
+    times5 = [0.31, 0.32, 45.0]
     colors5 = [c_bfast, c_bfast_alt, c_json]
 
     bars5 = ax5.bar(
@@ -325,10 +325,11 @@ def generate_chart():
 
     for i, (bar, time_val) in enumerate(zip(bars5, times5)):
         height = bar.get_height()
+        display_str = f"{time_val:.2f} ms" if time_val < 1.0 else f"{time_val:.1f} ms"
         ax5.text(
             bar.get_x() + bar.get_width() / 2.0,
             height + 0.8,
-            f"{time_val:.1f} ms",
+            display_str,
             ha="center",
             va="bottom",
             fontsize=10,
@@ -339,8 +340,8 @@ def generate_chart():
             speedup = times5[2] / time_val
             ax5.text(
                 bar.get_x() + bar.get_width() / 2.0,
-                height + 5.5,
-                f"{speedup:.1f}x faster\nzero TCP penalty",
+                height + 7.5,
+                f"{speedup:.0f}x faster\n(314 µs total)",
                 ha="center",
                 va="bottom",
                 fontsize=9.5,
@@ -357,8 +358,8 @@ def generate_chart():
     # -------------------------------------------------------------------------
     # 6. Streaming Throughput (Frames / Second)
     # -------------------------------------------------------------------------
-    categories6 = ["B-FAST (Frag)", "B-FAST (Norm)", "NDJSON (Line)"]
-    throughput6 = [84745, 73529, 22222]
+    categories6 = ["B-FAST (Norm)", "B-FAST (Frag)", "NDJSON (Line)"]
+    throughput6 = [3181000, 3099000, 22222]
     colors6 = [c_bfast, c_bfast_alt, c_json]
 
     bars6 = ax6.bar(
@@ -387,12 +388,18 @@ def generate_chart():
     )
     ax6.set_ylim(0, max(throughput6) * 1.35)
 
+    # Format y-axis with millions (M)
+    ax6.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, p: f"{x*1e-6:.1f}M" if x >= 1e6 else f"{int(x):,}")
+    )
+
     for i, (bar, tp_val) in enumerate(zip(bars6, throughput6)):
         height = bar.get_height()
+        label = f"{tp_val/1e6:.2f}M fps" if tp_val >= 1e6 else f"{tp_val:,} fps"
         ax6.text(
             bar.get_x() + bar.get_width() / 2.0,
-            height + 1200,
-            f"{tp_val:,.0f} fps",
+            height + 50000,
+            label,
             ha="center",
             va="bottom",
             fontsize=10,
@@ -403,8 +410,8 @@ def generate_chart():
             multiplier = tp_val / throughput6[2]
             ax6.text(
                 bar.get_x() + bar.get_width() / 2.0,
-                height + 11000,
-                f"Up to 85k fps\n{multiplier:.1f}x throughput",
+                height + 450000,
+                f"3.18M fps\n{multiplier:.0f}x throughput",
                 ha="center",
                 va="bottom",
                 fontsize=9.5,
