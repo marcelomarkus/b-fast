@@ -57,6 +57,7 @@ pub struct BFast {
     py_true: PyObject,
     py_false: PyObject,
     small_ints: [PyObject; 16],
+    dict_attr: PyObject,
 }
 
 impl Default for BFast {
@@ -76,6 +77,7 @@ impl BFast {
                     .into_any()
                     .unbind()
             });
+            let dict_attr = PyString::intern(py, "__dict__").into_any().unbind();
             BFast {
                 string_table: AHashMap::with_capacity(1024),
                 string_list: Vec::with_capacity(1024),
@@ -98,6 +100,7 @@ impl BFast {
                     .into_any()
                     .unbind(),
                 small_ints,
+                dict_attr,
             }
         })
     }
@@ -530,8 +533,7 @@ impl BFast {
             .extend_from_slice(&(len as u32).to_le_bytes());
 
         // Serialize all items directly into work_buffer (payload_buffer)
-        let dict_attr = PyString::intern(list.py(), "__dict__");
-        let dict_attr_ptr = dict_attr.as_ptr();
+        let dict_attr_ptr = self.dict_attr.as_ptr();
 
         if use_fast_mode {
             for item in list.iter() {
