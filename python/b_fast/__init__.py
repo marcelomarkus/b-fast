@@ -4,7 +4,7 @@ B-FAST: Binary Fast Adaptive Serialization Transfer
 Ultra-fast binary serialization library with Rust backend.
 """
 
-from ._b_fast import BFast, BFastError
+from ._b_fast import BFast, BFastError, BFastLazyView
 from .data import decode_dataframe, encode_dataframe
 from .django import BFastHttpResponse, BFastRenderer, BFastStreamingHttpResponse
 from .fastapi import BFastMiddleware, is_bfast_requested
@@ -34,10 +34,21 @@ except (ImportError, AttributeError):
     except Exception:
         __version__ = "unknown"
 
+
+def decode_lazy(data: bytes, decompress: bool = True) -> BFastLazyView:
+    """Decode B-FAST binary payload into a zero-allocation lazy view.
+
+    Values and nested structures are parsed on-demand as attributes or keys are accessed.
+    """
+    return BFast().decode_lazy(data, decompress=decompress)
+
+
 __all__ = [
     "__version__",
     "BFast",
     "BFastError",
+    "BFastLazyView",
+    "decode_lazy",
     "BFastResponse",
     "BFastStreamingResponse",
     "BFastMiddleware",

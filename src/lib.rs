@@ -11,7 +11,9 @@ use std::hash::{Hash, Hasher};
 use std::ptr;
 
 mod errors;
+pub mod lazy;
 pub mod streaming;
+use std::sync::Arc;
 
 // Performance tuning constants
 const CACHE_LINE_SIZE: usize = 64;
@@ -55,6 +57,7 @@ pub struct BFast {
     py_true: PyObject,
     py_false: PyObject,
     small_ints: [PyObject; 16],
+    dict_attr: PyObject,
 }
 
 impl Default for BFast {
@@ -74,6 +77,7 @@ impl BFast {
                     .into_any()
                     .unbind()
             });
+            let dict_attr = PyString::intern(py, "__dict__").into_any().unbind();
             BFast {
                 string_table: AHashMap::with_capacity(1024),
                 string_list: Vec::with_capacity(1024),
@@ -96,6 +100,7 @@ impl BFast {
                     .into_any()
                     .unbind(),
                 small_ints,
+                dict_attr,
             }
         })
     }
@@ -256,15 +261,108 @@ impl BFast {
 
         parser.parse()
     }
+
+    #[pyo3(signature = (bytes, *, decompress = true))]
+    pub fn decode_lazy(
+        &mut self,
+        _py: Python,
+        bytes: &[u8],
+        decompress: bool,
+    ) -> PyResult<lazy::BFastLazyView> {
+        let decompressed_data: Arc<Vec<u8>> = if decompress {
+            if bytes.len() < 2 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Buffer too small for B-FAST payload",
+                ));
+            }
+            if &bytes[0..2] == b"BF" {
+                Arc::new(bytes.to_vec())
+            } else {
+                if bytes.len() < 4 {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Buffer too small for compressed B-FAST data",
+                    ));
+                }
+                let uncompressed_size =
+                    u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
+                let mut buf = vec![0u8; uncompressed_size];
+                if lz4_flex::decompress_into(&bytes[4..], &mut buf).is_ok() {
+                    Arc::new(buf)
+                } else {
+                    let decompressed = decompress_packed(bytes)
+                        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                    Arc::new(decompressed.into_owned())
+                }
+            }
+        } else {
+            Arc::new(bytes.to_vec())
+        };
+
+        if decompressed_data.len() < 6 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Decompressed buffer too small for B-FAST header",
+            ));
+        }
+
+        let magic = &decompressed_data[0..2];
+        if magic != b"BF" {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Invalid B-FAST magic number",
+            ));
+        }
+
+        let string_table_count =
+            u16::from_le_bytes(decompressed_data[4..6].try_into().unwrap()) as usize;
+
+        let max_possible = (decompressed_data.len() - 6) / 2;
+        let mut string_table = Vec::with_capacity(string_table_count.min(max_possible));
+        let mut offset = 6;
+        for _ in 0..string_table_count {
+            if offset >= decompressed_data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Unexpected end of buffer in string table",
+                ));
+            }
+            let length = decompressed_data[offset] as usize;
+            offset += 1;
+            if offset + length > decompressed_data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "String extends beyond buffer in string table",
+                ));
+            }
+            let string_bytes = &decompressed_data[offset..offset + length];
+            let string_val = std::str::from_utf8(string_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in string table: {}",
+                    e
+                ))
+            })?;
+            string_table.push(string_val.to_string());
+            offset += length;
+        }
+
+        Ok(lazy::BFastLazyView::new(
+            decompressed_data,
+            offset,
+            Arc::new(string_table),
+        ))
+    }
 }
 
 impl BFast {
     fn encode_packed_internal(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<()> {
         self.work_buffer.clear();
-        self.payload_buffer.clear();
         self.recursion_depth = 0;
 
-        // Serialize payload into payload_buffer
+        if let Ok(list) = obj.downcast::<PyList>() {
+            if list.len() > 8 && self.encode_pydantic_batch_direct(list, compress).is_ok() {
+                return self.finalize_compression(compress);
+            }
+            self.work_buffer.clear();
+        }
+
+        // Two-buffer path (handles extended types, nested dicts, and complex models)
+        self.payload_buffer.clear();
         std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
 
         let serialize_res = if let Ok(list) = obj.downcast::<PyList>() {
@@ -281,7 +379,6 @@ impl BFast {
         std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
         serialize_res?;
 
-        // Write header + string table to work_buffer, followed by payload
         self.work_buffer.extend_from_slice(&[0u8; 6]);
         self.write_string_table_vectorized()?;
         self.write_header_simd(0, compress);
@@ -357,6 +454,145 @@ impl BFast {
     }
 
     #[inline(always)]
+    fn encode_pydantic_batch_direct(
+        &mut self,
+        list: &Bound<'_, PyList>,
+        compress: bool,
+    ) -> PyResult<()> {
+        let len = list.len();
+        if len == 0 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Empty"));
+        }
+
+        self.check_recursion_depth()?;
+
+        let first_item = list.get_item(0)?;
+        let first_ptr = first_item.as_ptr();
+        let dict_attr_ptr = self.dict_attr.as_ptr();
+
+        let (is_pydantic, dict) = {
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
+            if !p.is_null() {
+                let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+                if let Ok(d) = bound.downcast_into::<PyDict>() {
+                    (true, d)
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Invalid dict",
+                    ));
+                }
+            } else {
+                unsafe { pyo3::ffi::PyErr_Clear() };
+                if let Ok(d) = first_item.downcast::<PyDict>() {
+                    (false, d.clone())
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Not Pydantic or Dict",
+                    ));
+                }
+            }
+        };
+
+        let dict_len = dict.len();
+        let mut field_keys = Vec::with_capacity(dict_len);
+        let mut field_key_ptrs = Vec::with_capacity(dict_len);
+        let mut field_ids = Vec::with_capacity(dict_len);
+        let mut field_kinds = Vec::with_capacity(dict_len);
+        let mut use_fast_mode = true;
+
+        for (k, val) in dict.iter() {
+            let name = if let Ok(s) = k.downcast::<PyString>() {
+                s.to_str().unwrap_or("")
+            } else {
+                ""
+            };
+            field_ids.push(self.get_or_create_string_id_fast(name));
+            field_key_ptrs.push(k.as_ptr());
+
+            if val.downcast::<pyo3::types::PyBool>().is_ok() {
+                field_kinds.push(FastFieldKind::Bool);
+            } else if val.downcast::<pyo3::types::PyInt>().is_ok() {
+                field_kinds.push(FastFieldKind::Int);
+            } else if val.downcast::<pyo3::types::PyFloat>().is_ok() {
+                field_kinds.push(FastFieldKind::Float);
+            } else if val.downcast::<PyString>().is_ok() {
+                field_kinds.push(FastFieldKind::String);
+            } else if let Ok(l) = val.downcast::<PyList>() {
+                if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyFloat>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::FloatList);
+                } else if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyInt>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::IntList);
+                } else {
+                    field_kinds.push(FastFieldKind::Generic);
+                }
+            } else {
+                field_kinds.push(FastFieldKind::Generic);
+            }
+
+            if !val.is_none() {
+                if let Ok(name_obj) = val.get_type().name() {
+                    let type_name = name_obj.to_str().unwrap_or("");
+                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
+                        use_fast_mode = false;
+                    }
+                }
+            }
+
+            field_keys.push(k);
+        }
+
+        if !use_fast_mode || field_kinds.contains(&FastFieldKind::Generic) {
+            self.decrease_recursion_depth();
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Generic or complex fields present",
+            ));
+        }
+
+        // 1. Write header placeholder (6 bytes)
+        self.work_buffer.extend_from_slice(&[0u8; 6]);
+        // 2. Write string table
+        self.write_string_table_vectorized()?;
+        // 3. Fill in header
+        self.write_header_simd(0, compress);
+
+        // 4. Reserve buffer capacity for list items
+        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
+
+        // 5. Write list opcode (0x60) and count
+        self.work_buffer.push(0x60);
+        self.work_buffer
+            .extend_from_slice(&(len as u32).to_le_bytes());
+
+        // 6. Serialize all items DIRECTLY into work_buffer
+        let list_ptr = list.as_ptr();
+        for i in 0..len {
+            let item_ptr =
+                unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
+            self.serialize_pydantic_fast_ptr(
+                item_ptr,
+                list.py(),
+                &field_keys,
+                &field_key_ptrs,
+                &field_ids,
+                &field_kinds,
+                dict_attr_ptr,
+                is_pydantic,
+            )?;
+        }
+
+        self.decrease_recursion_depth();
+        Ok(())
+    }
+
+    #[inline(always)]
     fn serialize_pydantic_simd_batch(&mut self, list: &Bound<'_, PyList>) -> PyResult<()> {
         let len = list.len();
         if len == 0 {
@@ -368,16 +604,32 @@ impl BFast {
         self.check_recursion_depth()?;
 
         let first_item = list.get_item(0)?;
-        let (is_pydantic, dict) = if first_item.hasattr("__dict__")? {
-            let d = first_item.getattr("__dict__")?.downcast_into::<PyDict>()?;
-            (true, d)
-        } else if let Ok(d) = first_item.downcast::<PyDict>() {
-            (false, d.clone())
-        } else {
-            self.decrease_recursion_depth();
-            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "Not Pydantic or Dict",
-            ));
+        let first_ptr = first_item.as_ptr();
+        let dict_attr_ptr = self.dict_attr.as_ptr();
+
+        let (is_pydantic, dict) = {
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
+            if !p.is_null() {
+                let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+                if let Ok(d) = bound.downcast_into::<PyDict>() {
+                    (true, d)
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Invalid dict",
+                    ));
+                }
+            } else {
+                unsafe { pyo3::ffi::PyErr_Clear() };
+                if let Ok(d) = first_item.downcast::<PyDict>() {
+                    (false, d.clone())
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Not Pydantic or Dict",
+                    ));
+                }
+            }
         };
 
         let dict_len = dict.len();
@@ -441,14 +693,14 @@ impl BFast {
         self.work_buffer
             .extend_from_slice(&(len as u32).to_le_bytes());
 
-        // Serialize all items directly into work_buffer (payload_buffer)
-        let dict_attr = PyString::intern(list.py(), "__dict__");
-        let dict_attr_ptr = dict_attr.as_ptr();
-
+        let list_ptr = list.as_ptr();
         if use_fast_mode {
-            for item in list.iter() {
-                self.serialize_pydantic_fast(
-                    &item,
+            for i in 0..len {
+                let item_ptr =
+                    unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
+                self.serialize_pydantic_fast_ptr(
+                    item_ptr,
+                    list.py(),
                     &field_keys,
                     &field_key_ptrs,
                     &field_ids,
@@ -469,9 +721,10 @@ impl BFast {
 
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
-    fn serialize_pydantic_fast(
+    fn serialize_pydantic_fast_ptr(
         &mut self,
-        obj: &Bound<'_, PyAny>,
+        obj_ptr: *mut pyo3::ffi::PyObject,
+        py: Python<'_>,
         field_keys: &[Bound<'_, PyAny>],
         field_key_ptrs: &[*mut pyo3::ffi::PyObject],
         field_ids: &[u32],
@@ -482,7 +735,7 @@ impl BFast {
         self.work_buffer.push(0x70);
 
         let dict_ptr = if is_pydantic {
-            let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj.as_ptr(), dict_attr_ptr) };
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj_ptr, dict_attr_ptr) };
             if p.is_null() {
                 unsafe { pyo3::ffi::PyErr_Clear() };
                 self.work_buffer.push(0x7F);
@@ -490,7 +743,7 @@ impl BFast {
             }
             p
         } else {
-            obj.as_ptr()
+            obj_ptr
         };
 
         let num_fields = field_keys.len();
@@ -507,7 +760,7 @@ impl BFast {
             if field_idx < num_fields && key_ptr == field_key_ptrs[field_idx] {
                 self.work_buffer
                     .extend_from_slice(&field_ids[field_idx].to_le_bytes());
-                self.serialize_val_ptr_fast(val_ptr, field_kinds[field_idx], obj.py())?;
+                self.serialize_val_ptr_fast(val_ptr, field_kinds[field_idx], py)?;
                 field_idx += 1;
             } else {
                 matched_in_order = false;
@@ -533,7 +786,7 @@ impl BFast {
 
             let item_ptr = unsafe { pyo3::ffi::PyDict_GetItemWithError(dict_ptr, key.as_ptr()) };
             if !item_ptr.is_null() {
-                self.serialize_val_ptr_fast(item_ptr, field_kinds[i], obj.py())?;
+                self.serialize_val_ptr_fast(item_ptr, field_kinds[i], py)?;
             } else {
                 self.work_buffer.push(0x10);
             }
@@ -614,7 +867,9 @@ impl BFast {
                 self.work_buffer.push(0x50);
                 let bytes =
                     unsafe { std::slice::from_raw_parts(utf8_ptr as *const u8, size as usize) };
-                self.ensure_buffer_capacity(4 + bytes.len());
+                if self.work_buffer.len() + 4 + bytes.len() > self.work_buffer.capacity() {
+                    self.ensure_buffer_capacity(4 + bytes.len());
+                }
                 self.work_buffer
                     .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 self.work_buffer.extend_from_slice(bytes);
@@ -1234,6 +1489,7 @@ impl BFast {
 fn _b_fast(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<BFast>()?;
+    m.add_class::<lazy::BFastLazyView>()?;
     m.add_class::<streaming::BFastStreamDecoder>()?;
     m.add_class::<streaming::BFastStreamEncoder>()?;
     m.add(
