@@ -380,59 +380,61 @@ impl BFast {
             ));
         };
 
-        let field_keys: Vec<Bound<'_, PyAny>> = dict.keys().into_iter().collect();
-        let field_key_ptrs: Vec<*mut pyo3::ffi::PyObject> =
-            field_keys.iter().map(|k| k.as_ptr()).collect();
+        let dict_len = dict.len();
+        let mut field_keys = Vec::with_capacity(dict_len);
+        let mut field_key_ptrs = Vec::with_capacity(dict_len);
+        let mut field_ids = Vec::with_capacity(dict_len);
+        let mut field_kinds = Vec::with_capacity(dict_len);
+        let mut use_fast_mode = true;
 
-        let field_ids: Vec<u32> = field_keys
-            .iter()
-            .map(|k| {
-                let name = if let Ok(s) = k.downcast::<PyString>() {
-                    s.to_str().unwrap_or("")
-                } else {
-                    ""
-                };
-                self.get_or_create_string_id_fast(name)
-            })
-            .collect();
+        for (k, val) in dict.iter() {
+            let name = if let Ok(s) = k.downcast::<PyString>() {
+                s.to_str().unwrap_or("")
+            } else {
+                ""
+            };
+            field_ids.push(self.get_or_create_string_id_fast(name));
+            field_key_ptrs.push(k.as_ptr());
 
-        let mut field_kinds = Vec::with_capacity(field_keys.len());
-        for key in &field_keys {
-            if let Some(val) = dict.get_item(key)? {
-                if val.downcast::<pyo3::types::PyBool>().is_ok() {
-                    field_kinds.push(FastFieldKind::Bool);
-                } else if val.downcast::<pyo3::types::PyInt>().is_ok() {
-                    field_kinds.push(FastFieldKind::Int);
-                } else if val.downcast::<pyo3::types::PyFloat>().is_ok() {
-                    field_kinds.push(FastFieldKind::Float);
-                } else if val.downcast::<PyString>().is_ok() {
-                    field_kinds.push(FastFieldKind::String);
-                } else if let Ok(l) = val.downcast::<PyList>() {
-                    if l.len() > 0
-                        && l.get_item(0)
-                            .is_ok_and(|it| it.downcast::<pyo3::types::PyFloat>().is_ok())
-                    {
-                        field_kinds.push(FastFieldKind::FloatList);
-                    } else if l.len() > 0
-                        && l.get_item(0)
-                            .is_ok_and(|it| it.downcast::<pyo3::types::PyInt>().is_ok())
-                    {
-                        field_kinds.push(FastFieldKind::IntList);
-                    } else {
-                        field_kinds.push(FastFieldKind::Generic);
-                    }
+            if val.downcast::<pyo3::types::PyBool>().is_ok() {
+                field_kinds.push(FastFieldKind::Bool);
+            } else if val.downcast::<pyo3::types::PyInt>().is_ok() {
+                field_kinds.push(FastFieldKind::Int);
+            } else if val.downcast::<pyo3::types::PyFloat>().is_ok() {
+                field_kinds.push(FastFieldKind::Float);
+            } else if val.downcast::<PyString>().is_ok() {
+                field_kinds.push(FastFieldKind::String);
+            } else if let Ok(l) = val.downcast::<PyList>() {
+                if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyFloat>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::FloatList);
+                } else if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyInt>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::IntList);
                 } else {
                     field_kinds.push(FastFieldKind::Generic);
                 }
             } else {
                 field_kinds.push(FastFieldKind::Generic);
             }
+
+            if !val.is_none() {
+                if let Ok(name_obj) = val.get_type().name() {
+                    let type_name = name_obj.to_str().unwrap_or("");
+                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
+                        use_fast_mode = false;
+                    }
+                }
+            }
+
+            field_keys.push(k);
         }
 
-        // Auto-detect: check if first object has complex types
-        let use_fast_mode = self.detect_simple_types(&dict, &field_keys)?;
-
-        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 16 + 4));
+        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
 
         // Write list opcode and length
         self.work_buffer.push(0x60);
@@ -463,31 +465,6 @@ impl BFast {
 
         self.decrease_recursion_depth();
         Ok(())
-    }
-
-    #[inline(always)]
-    fn detect_simple_types(
-        &self,
-        dict: &Bound<'_, PyDict>,
-        field_keys: &[Bound<'_, PyAny>],
-    ) -> PyResult<bool> {
-        // Check first object's field types
-        for key in field_keys {
-            if let Some(value) = dict.get_item(key)? {
-                if value.is_none() {
-                    continue;
-                }
-
-                // Check for complex types
-                if let Ok(name_obj) = value.get_type().name() {
-                    let type_name = name_obj.to_str().unwrap_or("");
-                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
-                        return Ok(false); // Use complex mode
-                    }
-                }
-            }
-        }
-        Ok(true) // Use fast mode
     }
 
     #[inline(always)]
