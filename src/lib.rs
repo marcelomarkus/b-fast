@@ -16,7 +16,6 @@ pub mod streaming;
 use std::sync::Arc;
 
 // Performance tuning constants
-const CACHE_LINE_SIZE: usize = 64;
 const PARALLEL_COMPRESSION_THRESHOLD: usize = 1_000_000;
 const INITIAL_BUFFER_SIZE: usize = 4096;
 const MAX_RECURSION_DEPTH: usize = 128;
@@ -44,6 +43,7 @@ enum FastFieldKind {
 pub struct BFast {
     string_table: AHashMap<String, u32>,
     string_list: Vec<String>,
+    string_table_bytes: Vec<u8>,
     next_id: u32,
     work_buffer: Vec<u8>,
     payload_buffer: Vec<u8>,
@@ -81,6 +81,7 @@ impl BFast {
             BFast {
                 string_table: AHashMap::with_capacity(1024),
                 string_list: Vec::with_capacity(1024),
+                string_table_bytes: Vec::with_capacity(4096),
                 next_id: 0,
                 work_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
                 payload_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
@@ -853,8 +854,12 @@ impl BFast {
                 Ok(())
             }
             FastFieldKind::Bool => {
-                let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
-                self.serialize_value_fast(&val)
+                if val_ptr == self.py_true.as_ptr() {
+                    self.work_buffer.push(0x21);
+                } else {
+                    self.work_buffer.push(0x20);
+                }
+                Ok(())
             }
             FastFieldKind::String => {
                 let mut size: pyo3::ffi::Py_ssize_t = 0;
@@ -867,9 +872,6 @@ impl BFast {
                 self.work_buffer.push(0x50);
                 let bytes =
                     unsafe { std::slice::from_raw_parts(utf8_ptr as *const u8, size as usize) };
-                if self.work_buffer.len() + 4 + bytes.len() > self.work_buffer.capacity() {
-                    self.ensure_buffer_capacity(4 + bytes.len());
-                }
                 self.work_buffer
                     .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 self.work_buffer.extend_from_slice(bytes);
@@ -1174,6 +1176,9 @@ impl BFast {
         let new_id = self.next_id;
         self.string_table.insert(key_str.to_owned(), new_id);
         self.string_list.push(key_str.to_owned());
+        let bytes = key_str.as_bytes();
+        self.string_table_bytes.push(bytes.len() as u8);
+        self.string_table_bytes.extend_from_slice(bytes);
         self.next_id += 1;
 
         self.key_cache[slot] = Some((hash, new_id));
@@ -1194,18 +1199,8 @@ impl BFast {
 
     #[inline(always)]
     fn write_string_table_vectorized(&mut self) -> PyResult<()> {
-        if self.string_list.is_empty() {
-            return Ok(());
-        }
-
-        let total_size: usize = self.string_list.iter().map(|s| s.len() + 1).sum();
-        let aligned_size = (total_size + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
-        self.work_buffer.reserve(aligned_size);
-
-        for string in &self.string_list {
-            let bytes = string.as_bytes();
-            self.work_buffer.push(bytes.len() as u8);
-            self.work_buffer.extend_from_slice(bytes);
+        if !self.string_table_bytes.is_empty() {
+            self.work_buffer.extend_from_slice(&self.string_table_bytes);
         }
         Ok(())
     }
