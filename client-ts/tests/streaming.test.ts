@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import * as fs from 'fs';
 import {
     BFastDecoder,
     BFastEncoder,
@@ -14,6 +15,8 @@ import {
     FRAME_EOS,
     initWasmLz4Sync,
     isWasmEnabled,
+    wasmDecode,
+    wasmDecompressParallel,
 } from '../index';
 
 // Helper to create a dummy valid B-FAST payload
@@ -364,6 +367,61 @@ test('WebAssembly LZ4 acceleration', () => {
     const decoded = BFastDecoder.decode(compressed);
     assert.strictEqual(decoded.items.length, 500);
     assert.strictEqual(decoded.items[499].id, 499);
+});
+
+test('WebAssembly direct decode (wasmDecode)', () => {
+    initWasmLz4Sync();
+
+    const sample = {
+        name: 'Antigravity WASM Core',
+        version: 1.9,
+        active: true,
+        count: 42,
+        nullValue: null,
+        scores: [10, 20.5, 30],
+        nested: { inner: 'deep value', flag: false },
+    };
+
+    // 1. Uncompressed payload
+    const uncompressed = BFastEncoder.encode(sample, { compress: false });
+    const resUncompressed = wasmDecode(uncompressed);
+    assert.strictEqual(resUncompressed.success, true);
+    if (resUncompressed.success) {
+        assert.deepStrictEqual(resUncompressed.value, sample);
+    }
+
+    // 2. Compressed payload
+    const compressed = BFastEncoder.encode(sample, { compress: true });
+    const resCompressed = wasmDecode(compressed);
+    assert.strictEqual(resCompressed.success, true);
+    if (resCompressed.success) {
+        assert.deepStrictEqual(resCompressed.value, sample);
+    }
+
+    // 3. Round-trip through BFastDecoder.decode
+    const decoded = BFastDecoder.decode(compressed);
+    assert.deepStrictEqual(decoded, sample);
+});
+
+test('WebAssembly parallel decompression (wasmDecompressParallel)', () => {
+    initWasmLz4Sync();
+
+    // Verify it handles invalid/small buffer gracefully
+    const invalid = new Uint8Array([1, 2, 3]);
+    const resInvalid = wasmDecompressParallel(invalid, 100);
+    assert.strictEqual(resInvalid, null);
+
+    // If large parallel test file exists, test direct parallel decompression
+    if (fs.existsSync('/tmp/bfast_large_test.bin')) {
+        const bin = fs.readFileSync('/tmp/bfast_large_test.bin');
+        const view = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+        const uncompressedSize = view.getUint32(0, true);
+        const decompressed = wasmDecompressParallel(bin, uncompressedSize);
+        assert.ok(decompressed !== null);
+        assert.strictEqual(decompressed.length, uncompressedSize);
+        assert.strictEqual(decompressed[0], 0x42); // 'B'
+        assert.strictEqual(decompressed[1], 0x46); // 'F'
+    }
 });
 
 test('bfastFetch helper with mock fetch', async () => {

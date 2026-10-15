@@ -269,6 +269,13 @@ class BFastParser {
 }
 
 export type DecompressorFn = (compressedData: Uint8Array, uncompressedSize: number) => Uint8Array;
+export type WasmParallelDecompressorFn = (src: Uint8Array, uncompressedSize: number) => Uint8Array | null;
+export type WasmDecoderFn = (data: Uint8Array) => {
+    success: boolean;
+    value?: any;
+    reason?: 'extended_types' | 'error';
+    decompressed?: Uint8Array;
+};
 
 let wasmAutoAttempted = false;
 
@@ -327,6 +334,8 @@ export interface DecodeOptions<T = any> {
 
 export class BFastDecoder {
     private static _decompressor?: DecompressorFn;
+    private static _wasmParallelDecompressor?: WasmParallelDecompressorFn;
+    private static _wasmDecoder?: WasmDecoderFn;
 
     /**
      * Register a custom high-performance decompressor (such as WebAssembly).
@@ -340,6 +349,34 @@ export class BFastDecoder {
      */
     static getDecompressor(): DecompressorFn | undefined {
         return this._decompressor;
+    }
+
+    /**
+     * Register a custom WebAssembly parallel chunk decompressor.
+     */
+    static setWasmParallelDecompressor(fn: WasmParallelDecompressorFn | undefined): void {
+        this._wasmParallelDecompressor = fn;
+    }
+
+    /**
+     * Get the registered WebAssembly parallel chunk decompressor.
+     */
+    static getWasmParallelDecompressor(): WasmParallelDecompressorFn | undefined {
+        return this._wasmParallelDecompressor;
+    }
+
+    /**
+     * Register a custom WebAssembly direct binary decoder.
+     */
+    static setWasmDecoder(fn: WasmDecoderFn | undefined): void {
+        this._wasmDecoder = fn;
+    }
+
+    /**
+     * Get the registered WebAssembly direct binary decoder.
+     */
+    static getWasmDecoder(): WasmDecoderFn | undefined {
+        return this._wasmDecoder;
     }
 
     /**
@@ -366,7 +403,33 @@ export class BFastDecoder {
 
         let data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
 
-        // Decompress with LZ4 if explicitly compressed or auto-detected (doesn't start with 'BF' magic)
+        // Auto-initialize WebAssembly on first decode if not already attempted
+        ensureWasmAutoInit();
+
+        // 1. WebAssembly High-Performance Native Decode Fast-Path
+        // Only run when typedArrays is false (default) and WASM decoder is active
+        if (!typedArrays && this._wasmDecoder) {
+            const wasmResult = this._wasmDecoder(data);
+            if (wasmResult.success) {
+                if (schema) {
+                    return validateWithSchema(schema, wasmResult.value);
+                }
+                return wasmResult.value as T;
+            }
+            // If extended types (Date, Bytes, NumPy) were detected and WASM already decompressed,
+            // we can directly parse the decompressed data with BFastParser without re-decompressing!
+            if (wasmResult.reason === 'extended_types' && wasmResult.decompressed) {
+                data = wasmResult.decompressed;
+                const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                const parsed = new BFastParser(view, typedArrays).parse();
+                if (schema) {
+                    return validateWithSchema(schema, parsed);
+                }
+                return parsed as T;
+            }
+        }
+
+        // 2. Decompression fallback / handling
         const shouldDecompress =
             isCompressed !== undefined
                 ? isCompressed
@@ -377,41 +440,59 @@ export class BFastDecoder {
                 // Try single-chunk decompression first
                 data = decompressBlockLz4(data);
             } catch (error) {
-                // Fall back to parallel chunk decompression
-                try {
-                    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-                    const uncompressedSize = view.getUint32(0, true);
-                    const chunksCount = view.getUint32(4, true);
-
-                    let offset = 8;
-                    const decompressedChunks: Uint8Array[] = [];
-                    for (let i = 0; i < chunksCount; i++) {
-                        if (offset + 4 > data.length) {
-                            throw new BFastError('Unexpected end of data in parallel compression chunk headers');
+                // Try WebAssembly parallel chunk decompression first
+                let parallelSuccess = false;
+                if (this._wasmParallelDecompressor && data.length >= 8) {
+                    try {
+                        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                        const uncompressedSize = view.getUint32(0, true);
+                        const result = this._wasmParallelDecompressor(data, uncompressedSize);
+                        if (result) {
+                            data = result;
+                            parallelSuccess = true;
                         }
-                        const chunkLen = view.getUint32(offset, true);
-                        offset += 4;
-                        if (offset + chunkLen > data.length) {
-                            throw new BFastError('Unexpected end of data in parallel compression chunk data');
+                    } catch {
+                        // Fall through to pure JS parallel decompression
+                    }
+                }
+
+                if (!parallelSuccess) {
+                    // Fall back to parallel chunk decompression in pure JS
+                    try {
+                        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                        const uncompressedSize = view.getUint32(0, true);
+                        const chunksCount = view.getUint32(4, true);
+
+                        let offset = 8;
+                        const decompressedChunks: Uint8Array[] = [];
+                        for (let i = 0; i < chunksCount; i++) {
+                            if (offset + 4 > data.length) {
+                                throw new BFastError('Unexpected end of data in parallel compression chunk headers');
+                            }
+                            const chunkLen = view.getUint32(offset, true);
+                            offset += 4;
+                            if (offset + chunkLen > data.length) {
+                                throw new BFastError('Unexpected end of data in parallel compression chunk data');
+                            }
+                            const chunkData = new Uint8Array(
+                                data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + chunkLen)
+                            );
+                            offset += chunkLen;
+
+                            decompressedChunks.push(decompressBlockLz4(chunkData));
                         }
-                        const chunkData = new Uint8Array(
-                            data.buffer.slice(data.byteOffset + offset, data.byteOffset + offset + chunkLen)
-                        );
-                        offset += chunkLen;
 
-                        decompressedChunks.push(decompressBlockLz4(chunkData));
+                        // Concatenate chunks
+                        const result = new Uint8Array(uncompressedSize);
+                        let writeOffset = 0;
+                        for (const chunk of decompressedChunks) {
+                            result.set(chunk, writeOffset);
+                            writeOffset += chunk.length;
+                        }
+                        data = result;
+                    } catch (parallelError) {
+                        throw new BFastError(`LZ4 decompression failed (single: ${error}, parallel: ${parallelError})`);
                     }
-
-                    // Concatenate chunks
-                    const result = new Uint8Array(uncompressedSize);
-                    let writeOffset = 0;
-                    for (const chunk of decompressedChunks) {
-                        result.set(chunk, writeOffset);
-                        writeOffset += chunk.length;
-                    }
-                    data = result;
-                } catch (parallelError) {
-                    throw new BFastError(`LZ4 decompression failed (single: ${error}, parallel: ${parallelError})`);
                 }
             }
         }
@@ -1234,4 +1315,12 @@ export function bfastInfiniteQueryOptions<TData, TPageParam = unknown, TError = 
     };
 }
 
-export { initWasmLz4, initWasmLz4Sync, isWasmEnabled, wasmDecompress, base64ToUint8Array } from './wasm';
+export {
+    initWasmLz4,
+    initWasmLz4Sync,
+    isWasmEnabled,
+    wasmDecompress,
+    wasmDecompressParallel,
+    wasmDecode,
+    base64ToUint8Array,
+} from './wasm';

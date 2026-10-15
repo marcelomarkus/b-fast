@@ -8,6 +8,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 lz4_flex = { version = "0.14", default-features = false }
+itoa = "1.0"
+ryu = "1.0"
 
 [profile.release]
 opt-level = 3
