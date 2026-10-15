@@ -15,6 +15,10 @@ pub mod lazy;
 pub mod streaming;
 use std::sync::Arc;
 
+extern "C" {
+    fn _PyObject_GetDictPtr(obj: *mut pyo3::ffi::PyObject) -> *mut *mut pyo3::ffi::PyObject;
+}
+
 // Performance tuning constants
 const PARALLEL_COMPRESSION_THRESHOLD: usize = 1_000_000;
 const INITIAL_BUFFER_SIZE: usize = 4096;
@@ -472,9 +476,9 @@ impl BFast {
         let dict_attr_ptr = self.dict_attr.as_ptr();
 
         let (is_pydantic, dict) = {
-            let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
-            if !p.is_null() {
-                let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(first_ptr) };
+            if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
+                let bound = unsafe { Bound::from_borrowed_ptr(list.py(), *dict_ptr_ptr) };
                 if let Ok(d) = bound.downcast_into::<PyDict>() {
                     (true, d)
                 } else {
@@ -484,14 +488,27 @@ impl BFast {
                     ));
                 }
             } else {
-                unsafe { pyo3::ffi::PyErr_Clear() };
-                if let Ok(d) = first_item.downcast::<PyDict>() {
-                    (false, d.clone())
+                let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
+                if !p.is_null() {
+                    let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+                    if let Ok(d) = bound.downcast_into::<PyDict>() {
+                        (true, d)
+                    } else {
+                        self.decrease_recursion_depth();
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            "Invalid dict",
+                        ));
+                    }
                 } else {
-                    self.decrease_recursion_depth();
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                        "Not Pydantic or Dict",
-                    ));
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    if let Ok(d) = first_item.downcast::<PyDict>() {
+                        (false, d.clone())
+                    } else {
+                        self.decrease_recursion_depth();
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            "Not Pydantic or Dict",
+                        ));
+                    }
                 }
             }
         };
@@ -611,9 +628,9 @@ impl BFast {
         let dict_attr_ptr = self.dict_attr.as_ptr();
 
         let (is_pydantic, dict) = {
-            let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
-            if !p.is_null() {
-                let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(first_ptr) };
+            if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
+                let bound = unsafe { Bound::from_borrowed_ptr(list.py(), *dict_ptr_ptr) };
                 if let Ok(d) = bound.downcast_into::<PyDict>() {
                     (true, d)
                 } else {
@@ -623,14 +640,27 @@ impl BFast {
                     ));
                 }
             } else {
-                unsafe { pyo3::ffi::PyErr_Clear() };
-                if let Ok(d) = first_item.downcast::<PyDict>() {
-                    (false, d.clone())
+                let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
+                if !p.is_null() {
+                    let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+                    if let Ok(d) = bound.downcast_into::<PyDict>() {
+                        (true, d)
+                    } else {
+                        self.decrease_recursion_depth();
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            "Invalid dict",
+                        ));
+                    }
                 } else {
-                    self.decrease_recursion_depth();
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                        "Not Pydantic or Dict",
-                    ));
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    if let Ok(d) = first_item.downcast::<PyDict>() {
+                        (false, d.clone())
+                    } else {
+                        self.decrease_recursion_depth();
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                            "Not Pydantic or Dict",
+                        ));
+                    }
                 }
             }
         };
@@ -739,14 +769,21 @@ impl BFast {
     ) -> PyResult<()> {
         self.work_buffer.push(0x70);
 
+        let mut needs_decref = false;
         let dict_ptr = if is_pydantic {
-            let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj_ptr, dict_attr_ptr) };
-            if p.is_null() {
-                unsafe { pyo3::ffi::PyErr_Clear() };
-                self.work_buffer.push(0x7F);
-                return Ok(());
+            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(obj_ptr) };
+            if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
+                unsafe { *dict_ptr_ptr }
+            } else {
+                let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj_ptr, dict_attr_ptr) };
+                if p.is_null() {
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    self.work_buffer.push(0x7F);
+                    return Ok(());
+                }
+                needs_decref = true;
+                p
             }
-            p
         } else {
             obj_ptr
         };
@@ -774,7 +811,7 @@ impl BFast {
         }
 
         if matched_in_order && field_idx == num_fields {
-            if is_pydantic {
+            if needs_decref {
                 unsafe {
                     pyo3::ffi::Py_DECREF(dict_ptr);
                 }
@@ -796,7 +833,7 @@ impl BFast {
             }
         }
 
-        if is_pydantic {
+        if needs_decref {
             unsafe {
                 pyo3::ffi::Py_DECREF(dict_ptr);
             }
@@ -830,8 +867,12 @@ impl BFast {
                 if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
                 } else {
-                    self.work_buffer.push(0x38);
-                    self.work_buffer.extend_from_slice(&n.to_le_bytes());
+                    let n_bytes = n.to_le_bytes();
+                    let entry: [u8; 9] = [
+                        0x38, n_bytes[0], n_bytes[1], n_bytes[2], n_bytes[3], n_bytes[4],
+                        n_bytes[5], n_bytes[6], n_bytes[7],
+                    ];
+                    self.work_buffer.extend_from_slice(&entry);
                 }
                 Ok(())
             }
