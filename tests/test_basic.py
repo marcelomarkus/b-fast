@@ -111,5 +111,47 @@ def test_version():
     assert b_fast.__version__ == "1.9.0"
 
 
+def test_pydantic_batch_homogeneous_encoding():
+    """Test batch encoding of homogeneous Pydantic models."""
+    encoder = b_fast.BFast()
+    users = [UserModel(id=i, name=f"User {i}", active=(i % 2 == 0)) for i in range(50)]
+    encoded = encoder.encode_packed(users, compress=False)
+    decoded = encoder.decode_packed(encoded)
+    assert len(decoded) == 50
+    assert decoded[0] == {"id": 0, "name": "User 0", "active": True}
+    assert decoded[1] == {"id": 1, "name": "User 1", "active": False}
+    assert decoded[49] == {"id": 49, "name": "User 49", "active": False}
+
+
+def test_dict_records_batch_encoding():
+    """Test batch encoding of plain Python dictionaries."""
+    encoder = b_fast.BFast()
+    records = [
+        {"id": i, "name": f"Item {i}", "price": i * 2.5, "in_stock": True}
+        for i in range(50)
+    ]
+    encoded = encoder.encode_packed(records, compress=False)
+    decoded = encoder.decode_packed(encoded)
+    assert len(decoded) == 50
+    assert decoded[0] == {"id": 0, "name": "Item 0", "price": 0.0, "in_stock": True}
+    assert decoded[10] == {"id": 10, "name": "Item 10", "price": 25.0, "in_stock": True}
+
+
+def test_dict_records_disordered_keys_fallback():
+    """Test fallback when dictionary keys have varying order across items."""
+    encoder = b_fast.BFast()
+    records = [
+        {"a": 1, "b": 2, "c": 3},
+        {"b": 20, "a": 10, "c": 30},
+        {"c": 300, "b": 200, "a": 100},
+    ] * 10
+    encoded = encoder.encode_packed(records, compress=False)
+    decoded = encoder.decode_packed(encoded)
+    assert len(decoded) == 30
+    assert decoded[0] == {"a": 1, "b": 2, "c": 3}
+    assert decoded[1] == {"a": 10, "b": 20, "c": 30}
+    assert decoded[2] == {"a": 100, "b": 200, "c": 300}
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -26,6 +26,17 @@ const TAG_TIME: u8 = 0xD3;
 const TAG_UUID: u8 = 0xD4;
 const TAG_DECIMAL: u8 = 0xD5;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FastFieldKind {
+    Int,
+    Float,
+    Bool,
+    String,
+    FloatList,
+    IntList,
+    Generic,
+}
+
 #[allow(non_local_definitions)]
 #[pyclass]
 pub struct BFast {
@@ -341,7 +352,6 @@ impl BFast {
         Ok(())
     }
 
-    #[inline(always)]
     fn decrease_recursion_depth(&mut self) {
         self.recursion_depth -= 1;
     }
@@ -358,32 +368,73 @@ impl BFast {
         self.check_recursion_depth()?;
 
         let first_item = list.get_item(0)?;
-        if !first_item.hasattr("__dict__")? {
+        let (is_pydantic, dict) = if first_item.hasattr("__dict__")? {
+            let d = first_item.getattr("__dict__")?.downcast_into::<PyDict>()?;
+            (true, d)
+        } else if let Ok(d) = first_item.downcast::<PyDict>() {
+            (false, d.clone())
+        } else {
             self.decrease_recursion_depth();
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "Not Pydantic",
+                "Not Pydantic or Dict",
             ));
+        };
+
+        let dict_len = dict.len();
+        let mut field_keys = Vec::with_capacity(dict_len);
+        let mut field_key_ptrs = Vec::with_capacity(dict_len);
+        let mut field_ids = Vec::with_capacity(dict_len);
+        let mut field_kinds = Vec::with_capacity(dict_len);
+        let mut use_fast_mode = true;
+
+        for (k, val) in dict.iter() {
+            let name = if let Ok(s) = k.downcast::<PyString>() {
+                s.to_str().unwrap_or("")
+            } else {
+                ""
+            };
+            field_ids.push(self.get_or_create_string_id_fast(name));
+            field_key_ptrs.push(k.as_ptr());
+
+            if val.downcast::<pyo3::types::PyBool>().is_ok() {
+                field_kinds.push(FastFieldKind::Bool);
+            } else if val.downcast::<pyo3::types::PyInt>().is_ok() {
+                field_kinds.push(FastFieldKind::Int);
+            } else if val.downcast::<pyo3::types::PyFloat>().is_ok() {
+                field_kinds.push(FastFieldKind::Float);
+            } else if val.downcast::<PyString>().is_ok() {
+                field_kinds.push(FastFieldKind::String);
+            } else if let Ok(l) = val.downcast::<PyList>() {
+                if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyFloat>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::FloatList);
+                } else if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyInt>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::IntList);
+                } else {
+                    field_kinds.push(FastFieldKind::Generic);
+                }
+            } else {
+                field_kinds.push(FastFieldKind::Generic);
+            }
+
+            if !val.is_none() {
+                if let Ok(name_obj) = val.get_type().name() {
+                    let type_name = name_obj.to_str().unwrap_or("");
+                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
+                        use_fast_mode = false;
+                    }
+                }
+            }
+
+            field_keys.push(k);
         }
 
-        let dict = first_item.getattr("__dict__")?.downcast_into::<PyDict>()?;
-        let field_keys: Vec<Bound<'_, PyAny>> = dict.keys().into_iter().collect();
-
-        let field_ids: Vec<u32> = field_keys
-            .iter()
-            .map(|k| {
-                let name = if let Ok(s) = k.downcast::<PyString>() {
-                    s.to_str().unwrap_or("")
-                } else {
-                    ""
-                };
-                self.get_or_create_string_id_fast(name)
-            })
-            .collect();
-
-        // Auto-detect: check if first object has complex types
-        let use_fast_mode = self.detect_simple_types(&dict, &field_keys)?;
-
-        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 16 + 4));
+        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
 
         // Write list opcode and length
         self.work_buffer.push(0x60);
@@ -396,7 +447,15 @@ impl BFast {
 
         if use_fast_mode {
             for item in list.iter() {
-                self.serialize_pydantic_fast(&item, &field_keys, &field_ids, dict_attr_ptr)?;
+                self.serialize_pydantic_fast(
+                    &item,
+                    &field_keys,
+                    &field_key_ptrs,
+                    &field_ids,
+                    &field_kinds,
+                    dict_attr_ptr,
+                    is_pydantic,
+                )?;
             }
         } else {
             for item in list.iter() {
@@ -409,69 +468,208 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn detect_simple_types(
-        &self,
-        dict: &Bound<'_, PyDict>,
-        field_keys: &[Bound<'_, PyAny>],
-    ) -> PyResult<bool> {
-        // Check first object's field types
-        for key in field_keys {
-            if let Some(value) = dict.get_item(key)? {
-                if value.is_none() {
-                    continue;
-                }
-
-                // Check for complex types
-                if let Ok(name_obj) = value.get_type().name() {
-                    let type_name = name_obj.to_str().unwrap_or("");
-                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
-                        return Ok(false); // Use complex mode
-                    }
-                }
-            }
-        }
-        Ok(true) // Use fast mode
-    }
-
-    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn serialize_pydantic_fast(
         &mut self,
         obj: &Bound<'_, PyAny>,
         field_keys: &[Bound<'_, PyAny>],
+        field_key_ptrs: &[*mut pyo3::ffi::PyObject],
         field_ids: &[u32],
+        field_kinds: &[FastFieldKind],
         dict_attr_ptr: *mut pyo3::ffi::PyObject,
+        is_pydantic: bool,
     ) -> PyResult<()> {
         self.work_buffer.push(0x70);
 
-        let dict_ptr = unsafe {
-            let p = pyo3::ffi::PyObject_GetAttr(obj.as_ptr(), dict_attr_ptr);
+        let dict_ptr = if is_pydantic {
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj.as_ptr(), dict_attr_ptr) };
             if p.is_null() {
-                pyo3::ffi::PyErr_Clear();
+                unsafe { pyo3::ffi::PyErr_Clear() };
                 self.work_buffer.push(0x7F);
                 return Ok(());
             }
             p
+        } else {
+            obj.as_ptr()
         };
 
+        let num_fields = field_keys.len();
+        let mut pos: pyo3::ffi::Py_ssize_t = 0;
+        let mut key_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
+        let mut val_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
+        let mut matched_in_order = true;
+        let mut field_idx = 0;
+        let start_pos = self.work_buffer.len();
+
+        // Fast-path: Walk dense dictionary entries via PyDict_Next (zero hash lookups!)
+        while unsafe { pyo3::ffi::PyDict_Next(dict_ptr, &mut pos, &mut key_ptr, &mut val_ptr) } != 0
+        {
+            if field_idx < num_fields && key_ptr == field_key_ptrs[field_idx] {
+                self.work_buffer
+                    .extend_from_slice(&field_ids[field_idx].to_le_bytes());
+                self.serialize_val_ptr_fast(val_ptr, field_kinds[field_idx], obj.py())?;
+                field_idx += 1;
+            } else {
+                matched_in_order = false;
+                break;
+            }
+        }
+
+        if matched_in_order && field_idx == num_fields {
+            if is_pydantic {
+                unsafe {
+                    pyo3::ffi::Py_DECREF(dict_ptr);
+                }
+            }
+            self.work_buffer.push(0x7F);
+            return Ok(());
+        }
+
+        // Fallback: If dictionary keys were out of order, missing, or had extra keys
+        self.work_buffer.truncate(start_pos);
         for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
                 .extend_from_slice(&field_ids[i].to_le_bytes());
 
             let item_ptr = unsafe { pyo3::ffi::PyDict_GetItemWithError(dict_ptr, key.as_ptr()) };
             if !item_ptr.is_null() {
-                let value = unsafe { Bound::from_borrowed_ptr(obj.py(), item_ptr) };
-                self.serialize_value_fast(&value)?;
+                self.serialize_val_ptr_fast(item_ptr, field_kinds[i], obj.py())?;
             } else {
                 self.work_buffer.push(0x10);
             }
         }
 
-        unsafe {
-            pyo3::ffi::Py_DECREF(dict_ptr);
+        if is_pydantic {
+            unsafe {
+                pyo3::ffi::Py_DECREF(dict_ptr);
+            }
         }
 
         self.work_buffer.push(0x7F);
         Ok(())
+    }
+
+    #[inline(always)]
+    fn serialize_val_ptr_fast(
+        &mut self,
+        val_ptr: *mut pyo3::ffi::PyObject,
+        expected_kind: FastFieldKind,
+        py: Python<'_>,
+    ) -> PyResult<()> {
+        if val_ptr == self.py_none.as_ptr() {
+            self.work_buffer.push(0x10);
+            return Ok(());
+        }
+
+        if val_ptr == self.py_true.as_ptr() {
+            self.work_buffer.push(0x21);
+            return Ok(());
+        }
+
+        if val_ptr == self.py_false.as_ptr() {
+            self.work_buffer.push(0x20);
+            return Ok(());
+        }
+
+        match expected_kind {
+            FastFieldKind::Int => {
+                let mut overflow: std::os::raw::c_int = 0;
+                let n = unsafe { pyo3::ffi::PyLong_AsLongLongAndOverflow(val_ptr, &mut overflow) };
+                if overflow != 0 || (n == -1 && unsafe { !pyo3::ffi::PyErr_Occurred().is_null() }) {
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                    return self.serialize_value_fast(&val);
+                }
+                if (0..=7).contains(&n) {
+                    self.work_buffer.push(0x30 | (n as u8));
+                } else {
+                    self.work_buffer.push(0x38);
+                    self.work_buffer.extend_from_slice(&n.to_le_bytes());
+                }
+                Ok(())
+            }
+            FastFieldKind::Float => {
+                let f = unsafe { pyo3::ffi::PyFloat_AsDouble(val_ptr) };
+                if f == -1.0 && unsafe { !pyo3::ffi::PyErr_Occurred().is_null() } {
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                    return self.serialize_value_fast(&val);
+                }
+                self.work_buffer.push(0x40);
+                self.work_buffer.extend_from_slice(&f.to_le_bytes());
+                Ok(())
+            }
+            FastFieldKind::Bool => {
+                let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                self.serialize_value_fast(&val)
+            }
+            FastFieldKind::String => {
+                let mut size: pyo3::ffi::Py_ssize_t = 0;
+                let utf8_ptr = unsafe { pyo3::ffi::PyUnicode_AsUTF8AndSize(val_ptr, &mut size) };
+                if utf8_ptr.is_null() {
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                    return self.serialize_value_fast(&val);
+                }
+                self.work_buffer.push(0x50);
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(utf8_ptr as *const u8, size as usize) };
+                self.ensure_buffer_capacity(4 + bytes.len());
+                self.work_buffer
+                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                self.work_buffer.extend_from_slice(bytes);
+                Ok(())
+            }
+            FastFieldKind::FloatList => {
+                let len = unsafe { pyo3::ffi::PyList_Size(val_ptr) };
+                if len >= 0 {
+                    self.work_buffer.push(0x60);
+                    self.work_buffer
+                        .extend_from_slice(&(len as u32).to_le_bytes());
+                    for j in 0..len {
+                        let elem_ptr = unsafe { pyo3::ffi::PyList_GetItem(val_ptr, j) };
+                        let f = unsafe { pyo3::ffi::PyFloat_AsDouble(elem_ptr) };
+                        self.work_buffer.push(0x40);
+                        self.work_buffer.extend_from_slice(&f.to_le_bytes());
+                    }
+                    Ok(())
+                } else {
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                    self.serialize_value_fast(&val)
+                }
+            }
+            FastFieldKind::IntList => {
+                let len = unsafe { pyo3::ffi::PyList_Size(val_ptr) };
+                if len >= 0 {
+                    self.work_buffer.push(0x60);
+                    self.work_buffer
+                        .extend_from_slice(&(len as u32).to_le_bytes());
+                    for j in 0..len {
+                        let elem_ptr = unsafe { pyo3::ffi::PyList_GetItem(val_ptr, j) };
+                        let mut overflow: std::os::raw::c_int = 0;
+                        let n = unsafe {
+                            pyo3::ffi::PyLong_AsLongLongAndOverflow(elem_ptr, &mut overflow)
+                        };
+                        if (0..=7).contains(&n) {
+                            self.work_buffer.push(0x30 | (n as u8));
+                        } else {
+                            self.work_buffer.push(0x38);
+                            self.work_buffer.extend_from_slice(&n.to_le_bytes());
+                        }
+                    }
+                    Ok(())
+                } else {
+                    unsafe { pyo3::ffi::PyErr_Clear() };
+                    let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                    self.serialize_value_fast(&val)
+                }
+            }
+            FastFieldKind::Generic => {
+                let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
+                self.serialize_value_fast(&val)
+            }
+        }
     }
 
     #[inline(always)]
