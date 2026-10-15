@@ -361,10 +361,21 @@ impl BFast {
             self.work_buffer.clear();
         }
 
-        // Generic fallback path (uses payload_buffer + string table assembly)
+        // Two-buffer path (handles extended types, nested dicts, and complex models)
         self.payload_buffer.clear();
         std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
-        let serialize_res = self.serialize_any_optimized(obj);
+
+        let serialize_res = if let Ok(list) = obj.downcast::<PyList>() {
+            if list.len() > 8 && self.serialize_pydantic_simd_batch(list).is_ok() {
+                Ok(())
+            } else {
+                self.work_buffer.clear();
+                self.serialize_any_optimized(obj)
+            }
+        } else {
+            self.serialize_any_optimized(obj)
+        };
+
         std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
         serialize_res?;
 
@@ -561,6 +572,127 @@ impl BFast {
             .extend_from_slice(&(len as u32).to_le_bytes());
 
         // 6. Serialize all items DIRECTLY into work_buffer
+        let list_ptr = list.as_ptr();
+        for i in 0..len {
+            let item_ptr =
+                unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
+            self.serialize_pydantic_fast_ptr(
+                item_ptr,
+                list.py(),
+                &field_keys,
+                &field_key_ptrs,
+                &field_ids,
+                &field_kinds,
+                dict_attr_ptr,
+                is_pydantic,
+            )?;
+        }
+
+        self.decrease_recursion_depth();
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn serialize_pydantic_simd_batch(&mut self, list: &Bound<'_, PyList>) -> PyResult<()> {
+        let len = list.len();
+        if len == 0 {
+            self.work_buffer.push(0x60);
+            self.work_buffer.extend_from_slice(&0u32.to_le_bytes());
+            return Ok(());
+        }
+
+        self.check_recursion_depth()?;
+
+        let first_item = list.get_item(0)?;
+        let first_ptr = first_item.as_ptr();
+        let dict_attr_ptr = self.dict_attr.as_ptr();
+
+        let (is_pydantic, dict) = {
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
+            if !p.is_null() {
+                let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+                if let Ok(d) = bound.downcast_into::<PyDict>() {
+                    (true, d)
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Invalid dict",
+                    ));
+                }
+            } else {
+                unsafe { pyo3::ffi::PyErr_Clear() };
+                if let Ok(d) = first_item.downcast::<PyDict>() {
+                    (false, d.clone())
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Not Pydantic or Dict",
+                    ));
+                }
+            }
+        };
+
+        let dict_len = dict.len();
+        let mut field_keys = Vec::with_capacity(dict_len);
+        let mut field_key_ptrs = Vec::with_capacity(dict_len);
+        let mut field_ids = Vec::with_capacity(dict_len);
+        let mut field_kinds = Vec::with_capacity(dict_len);
+        let mut use_fast_mode = true;
+
+        for (k, val) in dict.iter() {
+            let name = if let Ok(s) = k.downcast::<PyString>() {
+                s.to_str().unwrap_or("")
+            } else {
+                ""
+            };
+            field_ids.push(self.get_or_create_string_id_fast(name));
+            field_key_ptrs.push(k.as_ptr());
+
+            if val.downcast::<pyo3::types::PyBool>().is_ok() {
+                field_kinds.push(FastFieldKind::Bool);
+            } else if val.downcast::<pyo3::types::PyInt>().is_ok() {
+                field_kinds.push(FastFieldKind::Int);
+            } else if val.downcast::<pyo3::types::PyFloat>().is_ok() {
+                field_kinds.push(FastFieldKind::Float);
+            } else if val.downcast::<PyString>().is_ok() {
+                field_kinds.push(FastFieldKind::String);
+            } else if let Ok(l) = val.downcast::<PyList>() {
+                if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyFloat>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::FloatList);
+                } else if l.len() > 0
+                    && l.get_item(0)
+                        .is_ok_and(|it| it.downcast::<pyo3::types::PyInt>().is_ok())
+                {
+                    field_kinds.push(FastFieldKind::IntList);
+                } else {
+                    field_kinds.push(FastFieldKind::Generic);
+                }
+            } else {
+                field_kinds.push(FastFieldKind::Generic);
+            }
+
+            if !val.is_none() {
+                if let Ok(name_obj) = val.get_type().name() {
+                    let type_name = name_obj.to_str().unwrap_or("");
+                    if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
+                        use_fast_mode = false;
+                    }
+                }
+            }
+
+            field_keys.push(k);
+        }
+
+        self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
+
+        // Write list opcode and length
+        self.work_buffer.push(0x60);
+        self.work_buffer
+            .extend_from_slice(&(len as u32).to_le_bytes());
+
         let list_ptr = list.as_ptr();
         if use_fast_mode {
             for i in 0..len {
