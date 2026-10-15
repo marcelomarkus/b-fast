@@ -1324,3 +1324,10 @@ export {
     wasmDecode,
     base64ToUint8Array,
 } from './wasm';
+
+export {
+    BFastTable,
+    AggregateOp,
+    FilterOp,
+    ColumnTypeString,
+} from './table';

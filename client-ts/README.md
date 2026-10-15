@@ -249,6 +249,34 @@ axios.interceptors.response.use(response => {
 
 ---
 
+## Columnar Data Access: `BFastTable`
+
+```typescript
+import { BFastTable } from 'bfast-client';
+
+const table = BFastTable.from(buffer);
+
+// Zero-copy column views
+const prices = table.getFloat64Array('price');
+const ids = table.getInt32Array('id');
+const actives = table.getBooleanArray('active');
+
+// Fast aggregations ('sum', 'avg', 'min', 'max', 'count')
+const totalPrice = table.aggregate('price', 'sum');
+const avgPrice = table.aggregate('price', 'avg');
+
+// Vectorized filter (returns matching row indices)
+const filteredIndices = table.filter('price', '>', 50.0);
+
+// On-demand string access
+const name = table.getString('name', 0);
+
+// Release WebAssembly memory when done
+table.free();
+```
+
+---
+
 ## 🤖 Model Context Protocol (MCP)
 
 Easily consume B-FAST binary tool results and resources from MCP / FastMCP servers:
