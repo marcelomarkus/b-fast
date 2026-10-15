@@ -352,27 +352,22 @@ impl BFast {
 impl BFast {
     fn encode_packed_internal(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<()> {
         self.work_buffer.clear();
-        self.payload_buffer.clear();
         self.recursion_depth = 0;
 
-        // Serialize payload into payload_buffer
-        std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
-
-        let serialize_res = if let Ok(list) = obj.downcast::<PyList>() {
-            if list.len() > 8 && self.serialize_pydantic_simd_batch(list).is_ok() {
-                Ok(())
-            } else {
-                self.work_buffer.clear();
-                self.serialize_any_optimized(obj)
+        if let Ok(list) = obj.downcast::<PyList>() {
+            if list.len() > 8 && self.encode_pydantic_batch_direct(list, compress).is_ok() {
+                return self.finalize_compression(compress);
             }
-        } else {
-            self.serialize_any_optimized(obj)
-        };
+            self.work_buffer.clear();
+        }
 
+        // Generic fallback path (uses payload_buffer + string table assembly)
+        self.payload_buffer.clear();
+        std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
+        let serialize_res = self.serialize_any_optimized(obj);
         std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
         serialize_res?;
 
-        // Write header + string table to work_buffer, followed by payload
         self.work_buffer.extend_from_slice(&[0u8; 6]);
         self.write_string_table_vectorized()?;
         self.write_header_simd(0, compress);
@@ -448,27 +443,45 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn serialize_pydantic_simd_batch(&mut self, list: &Bound<'_, PyList>) -> PyResult<()> {
+    fn encode_pydantic_batch_direct(
+        &mut self,
+        list: &Bound<'_, PyList>,
+        compress: bool,
+    ) -> PyResult<()> {
         let len = list.len();
         if len == 0 {
-            self.work_buffer.push(0x60);
-            self.work_buffer.extend_from_slice(&0u32.to_le_bytes());
-            return Ok(());
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Empty"));
         }
 
         self.check_recursion_depth()?;
 
         let first_item = list.get_item(0)?;
-        let (is_pydantic, dict) = if first_item.hasattr("__dict__")? {
-            let d = first_item.getattr("__dict__")?.downcast_into::<PyDict>()?;
-            (true, d)
-        } else if let Ok(d) = first_item.downcast::<PyDict>() {
-            (false, d.clone())
-        } else {
-            self.decrease_recursion_depth();
-            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "Not Pydantic or Dict",
-            ));
+        let first_ptr = first_item.as_ptr();
+        let dict_attr_ptr = self.dict_attr.as_ptr();
+
+        let (is_pydantic, dict) = {
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
+            if !p.is_null() {
+                let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
+                if let Ok(d) = bound.downcast_into::<PyDict>() {
+                    (true, d)
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Invalid dict",
+                    ));
+                }
+            } else {
+                unsafe { pyo3::ffi::PyErr_Clear() };
+                if let Ok(d) = first_item.downcast::<PyDict>() {
+                    (false, d.clone())
+                } else {
+                    self.decrease_recursion_depth();
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Not Pydantic or Dict",
+                    ));
+                }
+            }
         };
 
         let dict_len = dict.len();
@@ -525,20 +538,37 @@ impl BFast {
             field_keys.push(k);
         }
 
+        if !use_fast_mode || field_kinds.contains(&FastFieldKind::Generic) {
+            self.decrease_recursion_depth();
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Generic or complex fields present",
+            ));
+        }
+
+        // 1. Write header placeholder (6 bytes)
+        self.work_buffer.extend_from_slice(&[0u8; 6]);
+        // 2. Write string table
+        self.write_string_table_vectorized()?;
+        // 3. Fill in header
+        self.write_header_simd(0, compress);
+
+        // 4. Reserve buffer capacity for list items
         self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
 
-        // Write list opcode and length
+        // 5. Write list opcode (0x60) and count
         self.work_buffer.push(0x60);
         self.work_buffer
             .extend_from_slice(&(len as u32).to_le_bytes());
 
-        // Serialize all items directly into work_buffer (payload_buffer)
-        let dict_attr_ptr = self.dict_attr.as_ptr();
-
+        // 6. Serialize all items DIRECTLY into work_buffer
+        let list_ptr = list.as_ptr();
         if use_fast_mode {
-            for item in list.iter() {
-                self.serialize_pydantic_fast(
-                    &item,
+            for i in 0..len {
+                let item_ptr =
+                    unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
+                self.serialize_pydantic_fast_ptr(
+                    item_ptr,
+                    list.py(),
                     &field_keys,
                     &field_key_ptrs,
                     &field_ids,
@@ -559,9 +589,10 @@ impl BFast {
 
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
-    fn serialize_pydantic_fast(
+    fn serialize_pydantic_fast_ptr(
         &mut self,
-        obj: &Bound<'_, PyAny>,
+        obj_ptr: *mut pyo3::ffi::PyObject,
+        py: Python<'_>,
         field_keys: &[Bound<'_, PyAny>],
         field_key_ptrs: &[*mut pyo3::ffi::PyObject],
         field_ids: &[u32],
@@ -572,7 +603,7 @@ impl BFast {
         self.work_buffer.push(0x70);
 
         let dict_ptr = if is_pydantic {
-            let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj.as_ptr(), dict_attr_ptr) };
+            let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj_ptr, dict_attr_ptr) };
             if p.is_null() {
                 unsafe { pyo3::ffi::PyErr_Clear() };
                 self.work_buffer.push(0x7F);
@@ -580,7 +611,7 @@ impl BFast {
             }
             p
         } else {
-            obj.as_ptr()
+            obj_ptr
         };
 
         let num_fields = field_keys.len();
@@ -597,7 +628,7 @@ impl BFast {
             if field_idx < num_fields && key_ptr == field_key_ptrs[field_idx] {
                 self.work_buffer
                     .extend_from_slice(&field_ids[field_idx].to_le_bytes());
-                self.serialize_val_ptr_fast(val_ptr, field_kinds[field_idx], obj.py())?;
+                self.serialize_val_ptr_fast(val_ptr, field_kinds[field_idx], py)?;
                 field_idx += 1;
             } else {
                 matched_in_order = false;
@@ -623,7 +654,7 @@ impl BFast {
 
             let item_ptr = unsafe { pyo3::ffi::PyDict_GetItemWithError(dict_ptr, key.as_ptr()) };
             if !item_ptr.is_null() {
-                self.serialize_val_ptr_fast(item_ptr, field_kinds[i], obj.py())?;
+                self.serialize_val_ptr_fast(item_ptr, field_kinds[i], py)?;
             } else {
                 self.work_buffer.push(0x10);
             }
@@ -704,7 +735,9 @@ impl BFast {
                 self.work_buffer.push(0x50);
                 let bytes =
                     unsafe { std::slice::from_raw_parts(utf8_ptr as *const u8, size as usize) };
-                self.ensure_buffer_capacity(4 + bytes.len());
+                if self.work_buffer.len() + 4 + bytes.len() > self.work_buffer.capacity() {
+                    self.ensure_buffer_capacity(4 + bytes.len());
+                }
                 self.work_buffer
                     .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 self.work_buffer.extend_from_slice(bytes);
