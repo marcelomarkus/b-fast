@@ -254,6 +254,16 @@ async function streamData() {
 }
 ```
 
+#### 3. Columnar Table (`BFastTable`)
+```typescript
+import { BFastTable } from 'bfast-client';
+
+const table = BFastTable.from(buffer);
+const prices = table.getFloat64Array('price');
+const totalPrice = table.aggregate('price', 'sum');
+table.free();
+```
+
 ## 🤖 AI Assistants & Coding Agents (`llms.txt`)
 
 B-FAST provides a standardized, curated **[`llms.txt`](https://marcelomarkus.github.io/b-fast/llms.txt)** endpoint for AI tools (**OpenCode**, **Cursor**, **Claude Code**, **ChatGPT**, **Windsurf**, and **GitHub Copilot**).
