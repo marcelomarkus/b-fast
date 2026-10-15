@@ -576,7 +576,9 @@ impl BFast {
         let dict = match dict.downcast::<PyDict>() {
             Ok(d) => d,
             Err(_) => {
-                unsafe { pyo3::ffi::Py_DECREF(dict_ptr); }
+                unsafe {
+                    pyo3::ffi::Py_DECREF(dict_ptr);
+                }
                 self.work_buffer.push(0x7F);
                 return Ok(());
             }
