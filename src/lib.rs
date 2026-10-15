@@ -391,13 +391,16 @@ impl BFast {
             .extend_from_slice(&(len as u32).to_le_bytes());
 
         // Serialize all items directly into work_buffer (payload_buffer)
+        let dict_attr = PyString::intern(list.py(), "__dict__");
+        let dict_attr_ptr = dict_attr.as_ptr();
+
         if use_fast_mode {
             for item in list.iter() {
-                self.serialize_pydantic_fast(&item, &field_keys, &field_ids)?;
+                self.serialize_pydantic_fast(&item, &field_keys, &field_ids, dict_attr_ptr)?;
             }
         } else {
             for item in list.iter() {
-                self.serialize_pydantic_complex(&item, &field_keys, &field_ids)?;
+                self.serialize_pydantic_complex(&item, &field_keys, &field_ids, dict_attr_ptr)?;
             }
         }
 
@@ -436,11 +439,19 @@ impl BFast {
         obj: &Bound<'_, PyAny>,
         field_keys: &[Bound<'_, PyAny>],
         field_ids: &[u32],
+        dict_attr_ptr: *mut pyo3::ffi::PyObject,
     ) -> PyResult<()> {
         self.work_buffer.push(0x70);
 
-        let dict = obj.getattr("__dict__")?.downcast_into::<PyDict>()?;
-        let dict_ptr = dict.as_ptr();
+        let dict_ptr = unsafe {
+            let p = pyo3::ffi::PyObject_GetAttr(obj.as_ptr(), dict_attr_ptr);
+            if p.is_null() {
+                pyo3::ffi::PyErr_Clear();
+                self.work_buffer.push(0x7F);
+                return Ok(());
+            }
+            p
+        };
 
         for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
@@ -453,6 +464,10 @@ impl BFast {
             } else {
                 self.work_buffer.push(0x10);
             }
+        }
+
+        unsafe {
+            pyo3::ffi::Py_DECREF(dict_ptr);
         }
 
         self.work_buffer.push(0x7F);
@@ -542,11 +557,32 @@ impl BFast {
         obj: &Bound<'_, PyAny>,
         field_keys: &[Bound<'_, PyAny>],
         field_ids: &[u32],
+        dict_attr_ptr: *mut pyo3::ffi::PyObject,
     ) -> PyResult<()> {
         // Complex path: handles all types including datetime, UUID, Decimal
         self.work_buffer.push(0x70);
 
-        let dict = obj.getattr("__dict__")?.downcast_into::<PyDict>()?;
+        let dict_ptr = unsafe {
+            let p = pyo3::ffi::PyObject_GetAttr(obj.as_ptr(), dict_attr_ptr);
+            if p.is_null() {
+                pyo3::ffi::PyErr_Clear();
+                self.work_buffer.push(0x7F);
+                return Ok(());
+            }
+            p
+        };
+
+        let dict = unsafe { Bound::from_borrowed_ptr(obj.py(), dict_ptr) };
+        let dict = match dict.downcast::<PyDict>() {
+            Ok(d) => d,
+            Err(_) => {
+                unsafe {
+                    pyo3::ffi::Py_DECREF(dict_ptr);
+                }
+                self.work_buffer.push(0x7F);
+                return Ok(());
+            }
+        };
 
         for (i, key) in field_keys.iter().enumerate() {
             self.work_buffer
@@ -557,6 +593,10 @@ impl BFast {
             } else {
                 self.work_buffer.push(0x10);
             }
+        }
+
+        unsafe {
+            pyo3::ffi::Py_DECREF(dict_ptr);
         }
 
         self.work_buffer.push(0x7F);

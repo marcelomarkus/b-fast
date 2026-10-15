@@ -10,6 +10,12 @@ All notable changes to this project will be documented in this file.
 - **Inlined Traversal**: Enhanced inlining in list, dict, and Pydantic batch encoders.
 - **Direct PyInt Usage**: Replaced deprecated `PyLong` with `PyInt` across primitive types.
 
+### 🌐 Frontend WebAssembly Engine (`client-ts`)
+- **Direct WebAssembly B-FAST Decoding**: Implemented native WASM decoding core (`wasmDecode`) compiled from Rust, enabling direct binary parsing with precomputed string-table resolution.
+- **Parallel Chunk Decompression in WASM**: Added `wasmDecompressParallel` directly in WebAssembly, delivering a 2.3x speedup on large parallel-compressed payloads by eliminating intermediate JavaScript array slicing and buffer concatenation.
+- **Seamless Fast-Path & Fallback**: Native WASM acceleration integrates into `BFastDecoder.decode` with automatic fallback to `BFastParser` for extended types (Date, Uint8Array, Float64Array).
+
+
 ## [1.8.0] - 2026-10-14
 
 ### 🔄 Python Version Support & Modernization
