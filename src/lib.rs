@@ -538,7 +538,7 @@ impl BFast {
                 field_kinds.push(FastFieldKind::Generic);
             }
 
-            if !val.is_none() {
+            if matches!(field_kinds.last(), Some(FastFieldKind::Generic)) && !val.is_none() {
                 if let Ok(name_obj) = val.get_type().name() {
                     let type_name = name_obj.to_str().unwrap_or("");
                     if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
@@ -556,6 +556,8 @@ impl BFast {
                 "Generic or complex fields present",
             ));
         }
+
+        let field_id_bytes: Vec<[u8; 4]> = field_ids.iter().map(|id| id.to_le_bytes()).collect();
 
         // 1. Write header placeholder (6 bytes)
         self.work_buffer.extend_from_slice(&[0u8; 6]);
@@ -582,7 +584,7 @@ impl BFast {
                 list.py(),
                 &field_keys,
                 &field_key_ptrs,
-                &field_ids,
+                &field_id_bytes,
                 &field_kinds,
                 dict_attr_ptr,
                 is_pydantic,
@@ -675,7 +677,7 @@ impl BFast {
                 field_kinds.push(FastFieldKind::Generic);
             }
 
-            if !val.is_none() {
+            if matches!(field_kinds.last(), Some(FastFieldKind::Generic)) && !val.is_none() {
                 if let Ok(name_obj) = val.get_type().name() {
                     let type_name = name_obj.to_str().unwrap_or("");
                     if matches!(type_name, "datetime" | "date" | "time" | "UUID" | "Decimal") {
@@ -686,6 +688,8 @@ impl BFast {
 
             field_keys.push(k);
         }
+
+        let field_id_bytes: Vec<[u8; 4]> = field_ids.iter().map(|id| id.to_le_bytes()).collect();
 
         self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
 
@@ -704,7 +708,7 @@ impl BFast {
                     list.py(),
                     &field_keys,
                     &field_key_ptrs,
-                    &field_ids,
+                    &field_id_bytes,
                     &field_kinds,
                     dict_attr_ptr,
                     is_pydantic,
@@ -728,7 +732,7 @@ impl BFast {
         py: Python<'_>,
         field_keys: &[Bound<'_, PyAny>],
         field_key_ptrs: &[*mut pyo3::ffi::PyObject],
-        field_ids: &[u32],
+        field_id_bytes: &[[u8; 4]],
         field_kinds: &[FastFieldKind],
         dict_attr_ptr: *mut pyo3::ffi::PyObject,
         is_pydantic: bool,
@@ -760,7 +764,7 @@ impl BFast {
         {
             if field_idx < num_fields && key_ptr == field_key_ptrs[field_idx] {
                 self.work_buffer
-                    .extend_from_slice(&field_ids[field_idx].to_le_bytes());
+                    .extend_from_slice(&field_id_bytes[field_idx]);
                 self.serialize_val_ptr_fast(val_ptr, field_kinds[field_idx], py)?;
                 field_idx += 1;
             } else {
@@ -782,8 +786,7 @@ impl BFast {
         // Fallback: If dictionary keys were out of order, missing, or had extra keys
         self.work_buffer.truncate(start_pos);
         for (i, key) in field_keys.iter().enumerate() {
-            self.work_buffer
-                .extend_from_slice(&field_ids[i].to_le_bytes());
+            self.work_buffer.extend_from_slice(&field_id_bytes[i]);
 
             let item_ptr = unsafe { pyo3::ffi::PyDict_GetItemWithError(dict_ptr, key.as_ptr()) };
             if !item_ptr.is_null() {
@@ -815,16 +818,6 @@ impl BFast {
             return Ok(());
         }
 
-        if val_ptr == self.py_true.as_ptr() {
-            self.work_buffer.push(0x21);
-            return Ok(());
-        }
-
-        if val_ptr == self.py_false.as_ptr() {
-            self.work_buffer.push(0x20);
-            return Ok(());
-        }
-
         match expected_kind {
             FastFieldKind::Int => {
                 let mut overflow: std::os::raw::c_int = 0;
@@ -849,8 +842,12 @@ impl BFast {
                     let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
                     return self.serialize_value_fast(&val);
                 }
-                self.work_buffer.push(0x40);
-                self.work_buffer.extend_from_slice(&f.to_le_bytes());
+                let f_bytes = f.to_le_bytes();
+                let entry: [u8; 9] = [
+                    0x40, f_bytes[0], f_bytes[1], f_bytes[2], f_bytes[3], f_bytes[4], f_bytes[5],
+                    f_bytes[6], f_bytes[7],
+                ];
+                self.work_buffer.extend_from_slice(&entry);
                 Ok(())
             }
             FastFieldKind::Bool => {
@@ -869,11 +866,12 @@ impl BFast {
                     let val = unsafe { Bound::from_borrowed_ptr(py, val_ptr) };
                     return self.serialize_value_fast(&val);
                 }
-                self.work_buffer.push(0x50);
+                let len_bytes = (size as u32).to_le_bytes();
+                let header: [u8; 5] =
+                    [0x50, len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+                self.work_buffer.extend_from_slice(&header);
                 let bytes =
                     unsafe { std::slice::from_raw_parts(utf8_ptr as *const u8, size as usize) };
-                self.work_buffer
-                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 self.work_buffer.extend_from_slice(bytes);
                 Ok(())
             }
@@ -886,8 +884,12 @@ impl BFast {
                     for j in 0..len {
                         let elem_ptr = unsafe { pyo3::ffi::PyList_GetItem(val_ptr, j) };
                         let f = unsafe { pyo3::ffi::PyFloat_AsDouble(elem_ptr) };
-                        self.work_buffer.push(0x40);
-                        self.work_buffer.extend_from_slice(&f.to_le_bytes());
+                        let f_bytes = f.to_le_bytes();
+                        let entry: [u8; 9] = [
+                            0x40, f_bytes[0], f_bytes[1], f_bytes[2], f_bytes[3], f_bytes[4],
+                            f_bytes[5], f_bytes[6], f_bytes[7],
+                        ];
+                        self.work_buffer.extend_from_slice(&entry);
                     }
                     Ok(())
                 } else {
