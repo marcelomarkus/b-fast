@@ -410,12 +410,12 @@ impl BFast {
                 } else if let Ok(l) = val.downcast::<PyList>() {
                     if l.len() > 0
                         && l.get_item(0)
-                            .map_or(false, |it| it.downcast::<pyo3::types::PyFloat>().is_ok())
+                            .is_ok_and(|it| it.downcast::<pyo3::types::PyFloat>().is_ok())
                     {
                         field_kinds.push(FastFieldKind::FloatList);
                     } else if l.len() > 0
                         && l.get_item(0)
-                            .map_or(false, |it| it.downcast::<pyo3::types::PyInt>().is_ok())
+                            .is_ok_and(|it| it.downcast::<pyo3::types::PyInt>().is_ok())
                     {
                         field_kinds.push(FastFieldKind::IntList);
                     } else {
@@ -491,6 +491,7 @@ impl BFast {
     }
 
     #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn serialize_pydantic_fast(
         &mut self,
         obj: &Bound<'_, PyAny>,

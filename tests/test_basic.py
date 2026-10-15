@@ -114,10 +114,7 @@ def test_version():
 def test_pydantic_batch_homogeneous_encoding():
     """Test batch encoding of homogeneous Pydantic models."""
     encoder = b_fast.BFast()
-    users = [
-        UserModel(id=i, name=f"User {i}", active=(i % 2 == 0))
-        for i in range(50)
-    ]
+    users = [UserModel(id=i, name=f"User {i}", active=(i % 2 == 0)) for i in range(50)]
     encoded = encoder.encode_packed(users, compress=False)
     decoded = encoder.decode_packed(encoded)
     assert len(decoded) == 50
