@@ -21,7 +21,7 @@ extern "C" {
 
 // Performance tuning constants
 const PARALLEL_COMPRESSION_THRESHOLD: usize = 1_000_000;
-const INITIAL_BUFFER_SIZE: usize = 4096;
+const INITIAL_BUFFER_SIZE: usize = 65536;
 const MAX_RECURSION_DEPTH: usize = 128;
 
 // Type tags with metadata preservation
@@ -587,9 +587,9 @@ impl BFast {
         self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
 
         // 5. Write list opcode (0x60) and count
-        self.work_buffer.push(0x60);
-        self.work_buffer
-            .extend_from_slice(&(len as u32).to_le_bytes());
+        let len_bytes = (len as u32).to_le_bytes();
+        let list_hdr: [u8; 5] = [0x60, len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+        self.work_buffer.extend_from_slice(&list_hdr);
 
         // 6. Serialize all items DIRECTLY into work_buffer
         let list_ptr = list.as_ptr();
@@ -724,9 +724,9 @@ impl BFast {
         self.ensure_buffer_capacity(5 + len * (field_ids.len() * 32 + 32));
 
         // Write list opcode and length
-        self.work_buffer.push(0x60);
-        self.work_buffer
-            .extend_from_slice(&(len as u32).to_le_bytes());
+        let len_bytes = (len as u32).to_le_bytes();
+        let list_hdr: [u8; 5] = [0x60, len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+        self.work_buffer.extend_from_slice(&list_hdr);
 
         let list_ptr = list.as_ptr();
         if use_fast_mode {
@@ -857,6 +857,39 @@ impl BFast {
 
         match expected_kind {
             FastFieldKind::Int => {
+                if val_ptr == self.small_ints[0].as_ptr() {
+                    self.work_buffer.push(0x30);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[1].as_ptr() {
+                    self.work_buffer.push(0x31);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[2].as_ptr() {
+                    self.work_buffer.push(0x32);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[3].as_ptr() {
+                    self.work_buffer.push(0x33);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[4].as_ptr() {
+                    self.work_buffer.push(0x34);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[5].as_ptr() {
+                    self.work_buffer.push(0x35);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[6].as_ptr() {
+                    self.work_buffer.push(0x36);
+                    return Ok(());
+                }
+                if val_ptr == self.small_ints[7].as_ptr() {
+                    self.work_buffer.push(0x37);
+                    return Ok(());
+                }
+
                 let mut overflow: std::os::raw::c_int = 0;
                 let n = unsafe { pyo3::ffi::PyLong_AsLongLongAndOverflow(val_ptr, &mut overflow) };
                 if overflow != 0 || (n == -1 && unsafe { !pyo3::ffi::PyErr_Occurred().is_null() }) {
@@ -919,9 +952,10 @@ impl BFast {
             FastFieldKind::FloatList => {
                 let len = unsafe { pyo3::ffi::PyList_Size(val_ptr) };
                 if len >= 0 {
-                    self.work_buffer.push(0x60);
-                    self.work_buffer
-                        .extend_from_slice(&(len as u32).to_le_bytes());
+                    let len_bytes = (len as u32).to_le_bytes();
+                    let header: [u8; 5] =
+                        [0x60, len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+                    self.work_buffer.extend_from_slice(&header);
                     for j in 0..len {
                         let elem_ptr = unsafe { pyo3::ffi::PyList_GetItem(val_ptr, j) };
                         let f = unsafe { pyo3::ffi::PyFloat_AsDouble(elem_ptr) };
@@ -942,9 +976,10 @@ impl BFast {
             FastFieldKind::IntList => {
                 let len = unsafe { pyo3::ffi::PyList_Size(val_ptr) };
                 if len >= 0 {
-                    self.work_buffer.push(0x60);
-                    self.work_buffer
-                        .extend_from_slice(&(len as u32).to_le_bytes());
+                    let len_bytes = (len as u32).to_le_bytes();
+                    let header: [u8; 5] =
+                        [0x60, len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+                    self.work_buffer.extend_from_slice(&header);
                     for j in 0..len {
                         let elem_ptr = unsafe { pyo3::ffi::PyList_GetItem(val_ptr, j) };
                         let mut overflow: std::os::raw::c_int = 0;
@@ -954,8 +989,12 @@ impl BFast {
                         if (0..=7).contains(&n) {
                             self.work_buffer.push(0x30 | (n as u8));
                         } else {
-                            self.work_buffer.push(0x38);
-                            self.work_buffer.extend_from_slice(&n.to_le_bytes());
+                            let n_bytes = n.to_le_bytes();
+                            let entry: [u8; 9] = [
+                                0x38, n_bytes[0], n_bytes[1], n_bytes[2], n_bytes[3], n_bytes[4],
+                                n_bytes[5], n_bytes[6], n_bytes[7],
+                            ];
+                            self.work_buffer.extend_from_slice(&entry);
                         }
                     }
                     Ok(())
