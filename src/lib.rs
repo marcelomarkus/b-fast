@@ -11,7 +11,9 @@ use std::hash::{Hash, Hasher};
 use std::ptr;
 
 mod errors;
+pub mod lazy;
 pub mod streaming;
+use std::sync::Arc;
 
 // Performance tuning constants
 const CACHE_LINE_SIZE: usize = 64;
@@ -255,6 +257,92 @@ impl BFast {
         };
 
         parser.parse()
+    }
+
+    #[pyo3(signature = (bytes, *, decompress = true))]
+    pub fn decode_lazy(
+        &mut self,
+        _py: Python,
+        bytes: &[u8],
+        decompress: bool,
+    ) -> PyResult<lazy::BFastLazyView> {
+        let decompressed_data: Arc<Vec<u8>> = if decompress {
+            if bytes.len() < 2 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Buffer too small for B-FAST payload",
+                ));
+            }
+            if &bytes[0..2] == b"BF" {
+                Arc::new(bytes.to_vec())
+            } else {
+                if bytes.len() < 4 {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "Buffer too small for compressed B-FAST data",
+                    ));
+                }
+                let uncompressed_size =
+                    u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
+                let mut buf = vec![0u8; uncompressed_size];
+                if lz4_flex::decompress_into(&bytes[4..], &mut buf).is_ok() {
+                    Arc::new(buf)
+                } else {
+                    let decompressed = decompress_packed(bytes)
+                        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+                    Arc::new(decompressed.into_owned())
+                }
+            }
+        } else {
+            Arc::new(bytes.to_vec())
+        };
+
+        if decompressed_data.len() < 6 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Decompressed buffer too small for B-FAST header",
+            ));
+        }
+
+        let magic = &decompressed_data[0..2];
+        if magic != b"BF" {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Invalid B-FAST magic number",
+            ));
+        }
+
+        let string_table_count =
+            u16::from_le_bytes(decompressed_data[4..6].try_into().unwrap()) as usize;
+
+        let max_possible = (decompressed_data.len() - 6) / 2;
+        let mut string_table = Vec::with_capacity(string_table_count.min(max_possible));
+        let mut offset = 6;
+        for _ in 0..string_table_count {
+            if offset >= decompressed_data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Unexpected end of buffer in string table",
+                ));
+            }
+            let length = decompressed_data[offset] as usize;
+            offset += 1;
+            if offset + length > decompressed_data.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "String extends beyond buffer in string table",
+                ));
+            }
+            let string_bytes = &decompressed_data[offset..offset + length];
+            let string_val = std::str::from_utf8(string_bytes).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Invalid UTF-8 in string table: {}",
+                    e
+                ))
+            })?;
+            string_table.push(string_val.to_string());
+            offset += length;
+        }
+
+        Ok(lazy::BFastLazyView::new(
+            decompressed_data,
+            offset,
+            Arc::new(string_table),
+        ))
     }
 }
 
@@ -1234,6 +1322,7 @@ impl BFast {
 fn _b_fast(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<BFast>()?;
+    m.add_class::<lazy::BFastLazyView>()?;
     m.add_class::<streaming::BFastStreamDecoder>()?;
     m.add_class::<streaming::BFastStreamEncoder>()?;
     m.add(
