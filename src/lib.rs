@@ -71,7 +71,6 @@ pub struct BFast {
     payload_buffer: Vec<u8>,
     compressed_buffer: Vec<u8>,
     decompress_buffer: Vec<u8>,
-    frame_buffer: Vec<u8>,
     key_cache: [Option<(u64, u32)>; 64],
     recursion_depth: usize,
     last_was_compressed: bool,
@@ -80,6 +79,10 @@ pub struct BFast {
     py_false: PyObject,
     small_ints: [PyObject; 16],
     dict_attr: PyObject,
+    fast_cpython_abi: bool,
+    ascii_str_offset: usize,
+    long_tag_zero: usize,
+    long_tag_one: usize,
 }
 
 impl Default for BFast {
@@ -100,6 +103,52 @@ impl BFast {
                     .unbind()
             });
             let dict_attr = PyString::intern(py, "__dict__").into_any().unbind();
+            let dict_ptr = dict_attr.as_ptr();
+            let mut str_sz: pyo3::ffi::Py_ssize_t = 0;
+            let utf8_ptr = unsafe { pyo3::ffi::PyUnicode_AsUTF8AndSize(dict_ptr, &mut str_sz) };
+            let ascii_str_offset = if !utf8_ptr.is_null() && str_sz == 8 {
+                let off = (utf8_ptr as usize).wrapping_sub(dict_ptr as usize);
+                let len_at_16 = unsafe { *(dict_ptr.byte_add(16) as *const isize) };
+                let state_at_32 = unsafe { *dict_ptr.byte_add(32).cast::<u8>() };
+                if (32..=64).contains(&off) && len_at_16 == 8 && (state_at_32 & 0x7C) == 0x64 {
+                    off
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            let f_test = pyo3::types::PyFloat::new(py, 3.25);
+            let l_test = pyo3::types::PyList::new(py, [&f_test]);
+            let fast_cpython_abi = ascii_str_offset != 0
+                && unsafe { *(f_test.as_ptr().byte_add(16) as *const f64) == 3.25 }
+                && l_test.is_ok_and(|l| unsafe {
+                    *(l.as_ptr().byte_add(16) as *const isize) == 1
+                        && **(l.as_ptr().byte_add(24) as *const *const *mut pyo3::ffi::PyObject)
+                            == f_test.as_ptr()
+                });
+
+            let (long_tag_zero, long_tag_one) = if fast_cpython_abi {
+                unsafe {
+                    let p0 = small_ints[0].as_ptr();
+                    let p1 = small_ints[1].as_ptr();
+                    let p5 = small_ints[5].as_ptr();
+                    let t0 = *(p0.byte_add(16) as *const usize);
+                    let t1 = *(p1.byte_add(16) as *const usize);
+                    let t5 = *(p5.byte_add(16) as *const usize);
+                    let d1 = *(p1.byte_add(24) as *const u32);
+                    let d5 = *(p5.byte_add(24) as *const u32);
+                    if t1 == t5 && t0 != t1 && d1 == 1 && d5 == 5 {
+                        (t0, t1)
+                    } else {
+                        (usize::MAX, usize::MAX)
+                    }
+                }
+            } else {
+                (usize::MAX, usize::MAX)
+            };
+
             BFast {
                 string_table: AHashMap::with_capacity(1024),
                 string_table_bytes: Vec::with_capacity(4096),
@@ -108,7 +157,6 @@ impl BFast {
                 payload_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
                 compressed_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
                 decompress_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
-                frame_buffer: Vec::with_capacity(INITIAL_BUFFER_SIZE),
                 key_cache: [None; 64],
                 recursion_depth: 0,
                 last_was_compressed: false,
@@ -123,6 +171,10 @@ impl BFast {
                     .unbind(),
                 small_ints,
                 dict_attr,
+                fast_cpython_abi,
+                ascii_str_offset,
+                long_tag_zero,
+                long_tag_one,
             }
         })
     }
@@ -134,7 +186,7 @@ impl BFast {
         } else {
             &self.work_buffer
         };
-        Ok(PyBytes::new(obj.py(), slice).unbind().into_any())
+        Self::create_pybytes_fast(obj.py(), slice)
     }
 
     #[pyo3(signature = (obj, *, compress = true))]
@@ -148,19 +200,27 @@ impl BFast {
             self.work_buffer.len()
         };
         let len = slice_len as u32;
-
-        self.frame_buffer.clear();
-        self.frame_buffer.reserve(6 + slice_len);
-        self.frame_buffer.extend_from_slice(&len.to_le_bytes());
-        self.frame_buffer.push(crate::streaming::FRAME_DATA);
-        self.frame_buffer.push(is_compressed);
-        if self.last_was_compressed {
-            self.frame_buffer.extend_from_slice(&self.compressed_buffer);
-        } else {
-            self.frame_buffer.extend_from_slice(&self.work_buffer);
+        let total_len = 6 + slice_len;
+        unsafe {
+            let ptr = pyo3::ffi::PyBytes_FromStringAndSize(
+                ptr::null(),
+                total_len as pyo3::ffi::Py_ssize_t,
+            );
+            if ptr.is_null() {
+                return Err(PyErr::fetch(py));
+            }
+            let dst = pyo3::ffi::PyBytes_AsString(ptr) as *mut u8;
+            ptr::write_unaligned(dst as *mut u32, len.to_le());
+            *dst.add(4) = crate::streaming::FRAME_DATA;
+            *dst.add(5) = is_compressed;
+            let src_ptr = if self.last_was_compressed {
+                self.compressed_buffer.as_ptr()
+            } else {
+                self.work_buffer.as_ptr()
+            };
+            Self::copy_bytes_no_erms(dst.add(6), src_ptr, slice_len);
+            Ok(PyObject::from_owned_ptr(py, ptr))
         }
-
-        Ok(PyBytes::new(py, &self.frame_buffer).unbind().into_any())
     }
 
     #[staticmethod]
@@ -490,6 +550,90 @@ impl BFast {
     }
 
     #[inline(always)]
+    fn create_pybytes_fast(py: Python<'_>, slice: &[u8]) -> PyResult<PyObject> {
+        let len = slice.len();
+        unsafe {
+            let ptr =
+                pyo3::ffi::PyBytes_FromStringAndSize(ptr::null(), len as pyo3::ffi::Py_ssize_t);
+            if ptr.is_null() {
+                return Err(PyErr::fetch(py));
+            }
+            let dst = pyo3::ffi::PyBytes_AsString(ptr) as *mut u8;
+            Self::copy_bytes_no_erms(dst, slice.as_ptr(), len);
+            Ok(PyObject::from_owned_ptr(py, ptr))
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn copy_bytes_short(dst: *mut u8, src: *const u8, len: usize) {
+        if len <= 16 {
+            if len >= 8 {
+                let a = ptr::read_unaligned(src as *const u64);
+                let b = ptr::read_unaligned(src.add(len - 8) as *const u64);
+                ptr::write_unaligned(dst as *mut u64, a);
+                ptr::write_unaligned(dst.add(len - 8) as *mut u64, b);
+            } else if len >= 4 {
+                let a = ptr::read_unaligned(src as *const u32);
+                let b = ptr::read_unaligned(src.add(len - 4) as *const u32);
+                ptr::write_unaligned(dst as *mut u32, a);
+                ptr::write_unaligned(dst.add(len - 4) as *mut u32, b);
+            } else if len > 0 {
+                *dst = *src;
+                *dst.add(len >> 1) = *src.add(len >> 1);
+                *dst.add(len - 1) = *src.add(len - 1);
+            }
+        } else if len <= 32 {
+            let a0 = ptr::read_unaligned(src as *const u64);
+            let a1 = ptr::read_unaligned(src.add(8) as *const u64);
+            let b0 = ptr::read_unaligned(src.add(len - 16) as *const u64);
+            let b1 = ptr::read_unaligned(src.add(len - 8) as *const u64);
+            ptr::write_unaligned(dst as *mut u64, a0);
+            ptr::write_unaligned(dst.add(8) as *mut u64, a1);
+            ptr::write_unaligned(dst.add(len - 16) as *mut u64, b0);
+            ptr::write_unaligned(dst.add(len - 8) as *mut u64, b1);
+        } else if len <= 64 {
+            let a0 = ptr::read_unaligned(src as *const u64);
+            let a1 = ptr::read_unaligned(src.add(8) as *const u64);
+            let a2 = ptr::read_unaligned(src.add(16) as *const u64);
+            let a3 = ptr::read_unaligned(src.add(24) as *const u64);
+            let b0 = ptr::read_unaligned(src.add(len - 32) as *const u64);
+            let b1 = ptr::read_unaligned(src.add(len - 24) as *const u64);
+            let b2 = ptr::read_unaligned(src.add(len - 16) as *const u64);
+            let b3 = ptr::read_unaligned(src.add(len - 8) as *const u64);
+            ptr::write_unaligned(dst as *mut u64, a0);
+            ptr::write_unaligned(dst.add(8) as *mut u64, a1);
+            ptr::write_unaligned(dst.add(16) as *mut u64, a2);
+            ptr::write_unaligned(dst.add(24) as *mut u64, a3);
+            ptr::write_unaligned(dst.add(len - 32) as *mut u64, b0);
+            ptr::write_unaligned(dst.add(len - 24) as *mut u64, b1);
+            ptr::write_unaligned(dst.add(len - 16) as *mut u64, b2);
+            ptr::write_unaligned(dst.add(len - 8) as *mut u64, b3);
+        } else {
+            Self::copy_bytes_no_erms(dst, src, len);
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn copy_bytes_no_erms(mut dst: *mut u8, mut src: *const u8, mut len: usize) {
+        while len >= 64 {
+            let c0 = ptr::read_unaligned(src as *const u128);
+            let c1 = ptr::read_unaligned(src.add(16) as *const u128);
+            let c2 = ptr::read_unaligned(src.add(32) as *const u128);
+            let c3 = ptr::read_unaligned(src.add(48) as *const u128);
+            ptr::write_unaligned(dst as *mut u128, c0);
+            ptr::write_unaligned(dst.add(16) as *mut u128, c1);
+            ptr::write_unaligned(dst.add(32) as *mut u128, c2);
+            ptr::write_unaligned(dst.add(48) as *mut u128, c3);
+            src = src.add(64);
+            dst = std::hint::black_box(dst.add(64));
+            len -= 64;
+        }
+        if len > 0 {
+            Self::copy_bytes_short(dst, src, len);
+        }
+    }
+
+    #[inline(always)]
     fn detect_fast_field_kind(&self, val_ptr: *mut pyo3::ffi::PyObject) -> FastFieldKind {
         let py_true_ptr = self.py_true.as_ptr();
         let py_false_ptr = self.py_false.as_ptr();
@@ -526,15 +670,26 @@ impl BFast {
 
     #[inline(always)]
     fn encode_pydantic_batch_direct(&mut self, list: &Bound<'_, PyList>, compress: bool) -> bool {
-        let len = list.len();
+        let list_ptr = list.as_ptr();
+        let len = if self.fast_cpython_abi {
+            unsafe { *(list_ptr.byte_add(16) as *const isize) as usize }
+        } else {
+            list.len()
+        };
         if len == 0 {
             return false;
         }
 
         self.recursion_depth += 1;
 
-        let list_ptr = list.as_ptr();
-        let first_ptr = unsafe { pyo3::ffi::PyList_GetItem(list_ptr, 0) };
+        let first_ptr = unsafe {
+            if self.fast_cpython_abi {
+                let items = *(list_ptr.byte_add(24) as *const *const *mut pyo3::ffi::PyObject);
+                *items
+            } else {
+                pyo3::ffi::PyList_GetItem(list_ptr, 0)
+            }
+        };
         if first_ptr.is_null() {
             self.decrease_recursion_depth();
             return false;
@@ -542,11 +697,16 @@ impl BFast {
         let dict_attr_ptr = self.dict_attr.as_ptr();
 
         let mut needs_first_decref = false;
+        let mut first_type_ptr: *mut pyo3::ffi::PyTypeObject = ptr::null_mut();
+        let mut obj_dict_offset: isize = 0;
+
         let (is_pydantic, first_dict_ptr) = unsafe {
             let dict_ptr_ptr = _PyObject_GetDictPtr(first_ptr);
             if !dict_ptr_ptr.is_null() && !(*dict_ptr_ptr).is_null() {
                 let d = *dict_ptr_ptr;
                 if pyo3::ffi::PyDict_CheckExact(d) != 0 || pyo3::ffi::PyDict_Check(d) != 0 {
+                    first_type_ptr = (*first_ptr).ob_type;
+                    obj_dict_offset = (dict_ptr_ptr as isize) - (first_ptr as isize);
                     (true, d)
                 } else {
                     self.decrease_recursion_depth();
@@ -584,16 +744,15 @@ impl BFast {
             return false;
         }
 
-        let mut fields = [FastFieldInfo {
-            key_ptr: ptr::null_mut(),
-            id_bytes: [0; 4],
-            kind: FastFieldKind::Generic,
-        }; 32];
+        let mut fields_uninit = [std::mem::MaybeUninit::<FastFieldInfo>::uninit(); 32];
         let mut field_count = 0;
+        let mut first_val0_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
+        let mut first_val1_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
 
         let mut pos: pyo3::ffi::Py_ssize_t = 0;
         let mut key_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
         let mut val_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
+        let ascii_off = self.ascii_str_offset;
 
         while unsafe {
             pyo3::ffi::PyDict_Next(first_dict_ptr, &mut pos, &mut key_ptr, &mut val_ptr)
@@ -608,34 +767,109 @@ impl BFast {
                 return false;
             }
 
-            let mut str_size: pyo3::ffi::Py_ssize_t = 0;
-            let utf8_ptr = unsafe { pyo3::ffi::PyUnicode_AsUTF8AndSize(key_ptr, &mut str_size) };
-            if utf8_ptr.is_null() {
-                unsafe { pyo3::ffi::PyErr_Clear() };
-                if needs_first_decref {
-                    unsafe { pyo3::ffi::Py_DECREF(first_dict_ptr) };
+            let (utf8_ptr, str_len) = unsafe {
+                if ascii_off != 0
+                    && (*key_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyUnicode_Type)
+                    && (*key_ptr.byte_add(32).cast::<u8>() & 0x7C) == 0x64
+                {
+                    let sz = *(key_ptr.byte_add(16) as *const isize);
+                    if sz >= 0 {
+                        (key_ptr.byte_add(ascii_off) as *const u8, sz as usize)
+                    } else {
+                        return false;
+                    }
+                } else {
+                    let mut str_size: pyo3::ffi::Py_ssize_t = 0;
+                    let p = pyo3::ffi::PyUnicode_AsUTF8AndSize(key_ptr, &mut str_size);
+                    if p.is_null() {
+                        pyo3::ffi::PyErr_Clear();
+                        if needs_first_decref {
+                            pyo3::ffi::Py_DECREF(first_dict_ptr);
+                        }
+                        self.decrease_recursion_depth();
+                        return false;
+                    }
+                    (p as *const u8, str_size as usize)
                 }
-                self.decrease_recursion_depth();
-                return false;
-            }
-            let key_bytes =
-                unsafe { std::slice::from_raw_parts(utf8_ptr as *const u8, str_size as usize) };
+            };
+            let key_bytes = unsafe { std::slice::from_raw_parts(utf8_ptr, str_len) };
             let name = unsafe { std::str::from_utf8_unchecked(key_bytes) };
             let id = self.get_or_create_string_id_fast(name);
 
-            fields[field_count] = FastFieldInfo {
+            if field_count == 0 {
+                first_val0_ptr = val_ptr;
+            } else if field_count == 1 {
+                first_val1_ptr = val_ptr;
+            }
+
+            fields_uninit[field_count].write(FastFieldInfo {
                 key_ptr,
                 id_bytes: id.to_le_bytes(),
                 kind,
-            };
+            });
             field_count += 1;
+        }
+
+        let active_fields = unsafe {
+            std::slice::from_raw_parts(fields_uninit.as_ptr() as *const FastFieldInfo, field_count)
+        };
+
+        let mut dk_header_word = 0u64;
+        let mut entries_offset = 0usize;
+        let mut entry_stride = 0usize;
+
+        if self.fast_cpython_abi && field_count >= 1 {
+            unsafe {
+                if (*first_dict_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyDict_Type)
+                    && *(first_dict_ptr.byte_add(16) as *const usize) == field_count
+                    && *(first_dict_ptr.byte_add(40) as *const usize) == 0
+                {
+                    let ma_keys = *(first_dict_ptr.byte_add(32) as *const *const u8);
+                    if !ma_keys.is_null() && *(ma_keys.add(24) as *const usize) == field_count {
+                        let k0 = active_fields[0].key_ptr;
+                        let mut off = 32usize;
+                        while off <= 88 {
+                            let cand_k = *(ma_keys.add(off) as *const *mut pyo3::ffi::PyObject);
+                            let cand_v = *(ma_keys.add(off + 8) as *const *mut pyo3::ffi::PyObject);
+                            if cand_k == k0 && cand_v == first_val0_ptr {
+                                if field_count == 1 {
+                                    dk_header_word = *(ma_keys.add(8) as *const u64);
+                                    entries_offset = off;
+                                    entry_stride = 16;
+                                } else {
+                                    let k1 = active_fields[1].key_ptr;
+                                    let cand_k1_16 =
+                                        *(ma_keys.add(off + 16) as *const *mut pyo3::ffi::PyObject);
+                                    let cand_v1_16 =
+                                        *(ma_keys.add(off + 24) as *const *mut pyo3::ffi::PyObject);
+                                    if cand_k1_16 == k1 && cand_v1_16 == first_val1_ptr {
+                                        dk_header_word = *(ma_keys.add(8) as *const u64);
+                                        entries_offset = off;
+                                        entry_stride = 16;
+                                    } else {
+                                        let cand_k1_24 = *(ma_keys.add(off + 24)
+                                            as *const *mut pyo3::ffi::PyObject);
+                                        let cand_v1_24 = *(ma_keys.add(off + 32)
+                                            as *const *mut pyo3::ffi::PyObject);
+                                        if cand_k1_24 == k1 && cand_v1_24 == first_val1_ptr {
+                                            dk_header_word = *(ma_keys.add(8) as *const u64);
+                                            entries_offset = off;
+                                            entry_stride = 24;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            off += 8;
+                        }
+                    }
+                }
+            }
         }
 
         if needs_first_decref {
             unsafe { pyo3::ffi::Py_DECREF(first_dict_ptr) };
         }
-
-        let active_fields = &fields[..field_count];
 
         let st_len = self.string_table_bytes.len();
         let needed_initial = 11 + st_len + len * (field_count * 24 + 16);
@@ -651,7 +885,7 @@ impl BFast {
             *base.add(3) = 0x01;
             ptr::write_unaligned(base.add(4) as *mut u16, (self.next_id as u16).to_le());
             if st_len > 0 {
-                ptr::copy_nonoverlapping(self.string_table_bytes.as_ptr(), base.add(6), st_len);
+                Self::copy_bytes_short(base.add(6), self.string_table_bytes.as_ptr(), st_len);
             }
             let list_hdr_ptr = base.add(6 + st_len);
             *list_hdr_ptr = 0x60;
@@ -663,15 +897,32 @@ impl BFast {
         }
 
         let py = list.py();
+        let fast_abi = self.fast_cpython_abi;
+        let list_items_ptr = if fast_abi {
+            unsafe { *(list_ptr.byte_add(24) as *const *const *mut pyo3::ffi::PyObject) }
+        } else {
+            ptr::null()
+        };
+
         for i in 0..len {
-            let item_ptr =
-                unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
-            if !self.serialize_pydantic_fast_ptr(
+            let item_ptr = unsafe {
+                if !list_items_ptr.is_null() {
+                    *list_items_ptr.add(i)
+                } else {
+                    pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t)
+                }
+            };
+            if !self.serialize_pydantic_fast_ptr_with_layout(
                 item_ptr,
                 py,
                 active_fields,
                 dict_attr_ptr,
                 is_pydantic,
+                first_type_ptr,
+                obj_dict_offset,
+                dk_header_word,
+                entries_offset,
+                entry_stride,
             ) {
                 self.decrease_recursion_depth();
                 return false;
@@ -792,12 +1043,17 @@ impl BFast {
             for i in 0..len {
                 let item_ptr =
                     unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i as pyo3::ffi::Py_ssize_t) };
-                if !self.serialize_pydantic_fast_ptr(
+                if !self.serialize_pydantic_fast_ptr_with_layout(
                     item_ptr,
                     list.py(),
                     active_fields,
                     dict_attr_ptr,
                     is_pydantic,
+                    ptr::null_mut(),
+                    0,
+                    0,
+                    0,
+                    0,
                 ) {
                     self.decrease_recursion_depth();
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -821,13 +1077,19 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn serialize_pydantic_fast_ptr(
+    #[allow(clippy::too_many_arguments)]
+    fn serialize_pydantic_fast_ptr_with_layout(
         &mut self,
         obj_ptr: *mut pyo3::ffi::PyObject,
         py: Python<'_>,
         fields: &[FastFieldInfo],
         dict_attr_ptr: *mut pyo3::ffi::PyObject,
         is_pydantic: bool,
+        first_type_ptr: *mut pyo3::ffi::PyTypeObject,
+        obj_dict_offset: isize,
+        dk_header_word: u64,
+        entries_offset: usize,
+        entry_stride: usize,
     ) -> bool {
         let item_start = self.work_buffer.len();
         if self.work_buffer.capacity() - item_start < 64 {
@@ -840,37 +1102,119 @@ impl BFast {
 
         let mut needs_decref = false;
         let dict_ptr = if is_pydantic {
-            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(obj_ptr) };
-            if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
-                unsafe { *dict_ptr_ptr }
-            } else {
-                let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj_ptr, dict_attr_ptr) };
-                if p.is_null() {
+            let fast_d =
+                if !first_type_ptr.is_null() && unsafe { (*obj_ptr).ob_type == first_type_ptr } {
                     unsafe {
-                        pyo3::ffi::PyErr_Clear();
-                        *self.work_buffer.as_mut_ptr().add(item_start + 1) = 0x7F;
-                        self.work_buffer.set_len(item_start + 2);
+                        *(obj_ptr.byte_offset(obj_dict_offset) as *const *mut pyo3::ffi::PyObject)
                     }
-                    return true;
+                } else {
+                    ptr::null_mut()
+                };
+            if !fast_d.is_null() {
+                fast_d
+            } else {
+                let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(obj_ptr) };
+                if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
+                    unsafe { *dict_ptr_ptr }
+                } else {
+                    let p = unsafe { pyo3::ffi::PyObject_GetAttr(obj_ptr, dict_attr_ptr) };
+                    if p.is_null() {
+                        unsafe {
+                            pyo3::ffi::PyErr_Clear();
+                            *self.work_buffer.as_mut_ptr().add(item_start + 1) = 0x7F;
+                            self.work_buffer.set_len(item_start + 2);
+                        }
+                        return true;
+                    }
+                    needs_decref = true;
+                    p
                 }
-                needs_decref = true;
-                p
             }
         } else {
             obj_ptr
         };
 
         let num_fields = fields.len();
-        let mut pos: pyo3::ffi::Py_ssize_t = 0;
-        let mut key_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
-        let mut val_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
-        let mut matched_in_order = true;
-        let mut field_idx = 0;
         let start_pos = item_start + 1;
 
         let py_none_ptr = self.py_none.as_ptr();
         let py_true_ptr = self.py_true.as_ptr();
         let py_false_ptr = self.py_false.as_ptr();
+        let fast_abi = self.fast_cpython_abi;
+        let ascii_str_offset = self.ascii_str_offset;
+        let long_tag_zero = self.long_tag_zero;
+        let long_tag_one = self.long_tag_one;
+
+        // Ultra-fast path: Direct CPython combined-dict entry table walk (zero PyDict_Next FFI calls!)
+        if entry_stride != 0 {
+            let direct_ok = unsafe {
+                if (*dict_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyDict_Type)
+                    && *(dict_ptr.byte_add(16) as *const usize) == num_fields
+                    && *(dict_ptr.byte_add(40) as *const usize) == 0
+                {
+                    let ma_keys = *(dict_ptr.byte_add(32) as *const *const u8);
+                    if !ma_keys.is_null()
+                        && *(ma_keys.add(8) as *const u64) == dk_header_word
+                        && *(ma_keys.add(24) as *const usize) == num_fields
+                    {
+                        let mut entry_ptr = ma_keys.add(entries_offset);
+                        let mut ok = true;
+                        for f_info in fields {
+                            let k_ptr = *(entry_ptr as *const *mut pyo3::ffi::PyObject);
+                            let v_ptr = *(entry_ptr.add(8) as *const *mut pyo3::ffi::PyObject);
+                            if k_ptr != f_info.key_ptr
+                                || !Self::write_val_ptr_to_vec(
+                                    &mut self.work_buffer,
+                                    py_none_ptr,
+                                    py_true_ptr,
+                                    py_false_ptr,
+                                    fast_abi,
+                                    ascii_str_offset,
+                                    long_tag_zero,
+                                    long_tag_one,
+                                    u32::from_ne_bytes(f_info.id_bytes),
+                                    v_ptr,
+                                    f_info.kind,
+                                )
+                            {
+                                ok = false;
+                                break;
+                            }
+                            entry_ptr = entry_ptr.add(entry_stride);
+                        }
+                        ok
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if direct_ok {
+                if needs_decref {
+                    unsafe {
+                        pyo3::ffi::Py_DECREF(dict_ptr);
+                    }
+                }
+                let cur_len = self.work_buffer.len();
+                if self.work_buffer.capacity() - cur_len < 1 {
+                    self.work_buffer.reserve(4096);
+                }
+                unsafe {
+                    *self.work_buffer.as_mut_ptr().add(cur_len) = 0x7F;
+                    self.work_buffer.set_len(cur_len + 1);
+                }
+                return true;
+            }
+            self.work_buffer.truncate(start_pos);
+        }
+
+        let mut pos: pyo3::ffi::Py_ssize_t = 0;
+        let mut key_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
+        let mut val_ptr: *mut pyo3::ffi::PyObject = ptr::null_mut();
+        let mut matched_in_order = true;
+        let mut field_idx = 0;
 
         // Fast-path: Walk dense dictionary entries via PyDict_Next (zero hash lookups!)
         while unsafe { pyo3::ffi::PyDict_Next(dict_ptr, &mut pos, &mut key_ptr, &mut val_ptr) } != 0
@@ -883,6 +1227,10 @@ impl BFast {
                     py_none_ptr,
                     py_true_ptr,
                     py_false_ptr,
+                    fast_abi,
+                    ascii_str_offset,
+                    long_tag_zero,
+                    long_tag_one,
                     id_u32,
                     val_ptr,
                     f_info.kind,
@@ -1058,7 +1406,7 @@ impl BFast {
         }
         unsafe {
             let base = out.as_mut_ptr().add(frame_start);
-            ptr::copy_nonoverlapping(template.prefix.as_ptr(), base.add(6), prefix_len);
+            Self::copy_bytes_short(base.add(6), template.prefix.as_ptr(), prefix_len);
             *base.add(6 + prefix_len) = 0x70;
             out.set_len(frame_start + header_and_prefix);
         }
@@ -1096,6 +1444,10 @@ impl BFast {
         let py_none_ptr = self.py_none.as_ptr();
         let py_true_ptr = self.py_true.as_ptr();
         let py_false_ptr = self.py_false.as_ptr();
+        let fast_abi = self.fast_cpython_abi;
+        let ascii_str_offset = self.ascii_str_offset;
+        let long_tag_zero = self.long_tag_zero;
+        let long_tag_one = self.long_tag_one;
 
         while unsafe { pyo3::ffi::PyDict_Next(dict_ptr, &mut pos, &mut key_ptr, &mut val_ptr) } != 0
         {
@@ -1124,6 +1476,10 @@ impl BFast {
                         py_none_ptr,
                         py_true_ptr,
                         py_false_ptr,
+                        fast_abi,
+                        ascii_str_offset,
+                        long_tag_zero,
+                        long_tag_one,
                         id_u32,
                         val_ptr,
                         target_field.kind,
@@ -1192,6 +1548,10 @@ impl BFast {
         py_none_ptr: *mut pyo3::ffi::PyObject,
         py_true_ptr: *mut pyo3::ffi::PyObject,
         py_false_ptr: *mut pyo3::ffi::PyObject,
+        fast_abi: bool,
+        ascii_str_offset: usize,
+        long_tag_zero: usize,
+        long_tag_one: usize,
         id_u32: u32,
         val_ptr: *mut pyo3::ffi::PyObject,
         expected_kind: FastFieldKind,
@@ -1234,12 +1594,33 @@ impl BFast {
                 if val_ptr == py_true_ptr || val_ptr == py_false_ptr {
                     return false;
                 }
-                let mut overflow: std::os::raw::c_int = 0;
-                let n = unsafe { pyo3::ffi::PyLong_AsLongLongAndOverflow(val_ptr, &mut overflow) };
-                if overflow != 0 || (n == -1 && unsafe { !pyo3::ffi::PyErr_Occurred().is_null() }) {
-                    unsafe { pyo3::ffi::PyErr_Clear() };
-                    return false;
-                }
+                let n = unsafe {
+                    if (*val_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyLong_Type) {
+                        let tag = *(val_ptr.byte_add(16) as *const usize);
+                        if tag == long_tag_one {
+                            *(val_ptr.byte_add(24) as *const u32) as i64
+                        } else if tag == long_tag_zero {
+                            0
+                        } else {
+                            let mut overflow: std::os::raw::c_int = 0;
+                            let v = pyo3::ffi::PyLong_AsLongLongAndOverflow(val_ptr, &mut overflow);
+                            if overflow != 0 || (v == -1 && !pyo3::ffi::PyErr_Occurred().is_null())
+                            {
+                                pyo3::ffi::PyErr_Clear();
+                                return false;
+                            }
+                            v
+                        }
+                    } else {
+                        let mut overflow: std::os::raw::c_int = 0;
+                        let v = pyo3::ffi::PyLong_AsLongLongAndOverflow(val_ptr, &mut overflow);
+                        if overflow != 0 || (v == -1 && !pyo3::ffi::PyErr_Occurred().is_null()) {
+                            pyo3::ffi::PyErr_Clear();
+                            return false;
+                        }
+                        v
+                    }
+                };
                 if out.capacity() - cur_len < 13 {
                     out.reserve(4096);
                 }
@@ -1258,11 +1639,19 @@ impl BFast {
                 true
             }
             FastFieldKind::Float => {
-                let f = unsafe { pyo3::ffi::PyFloat_AsDouble(val_ptr) };
-                if f == -1.0 && unsafe { !pyo3::ffi::PyErr_Occurred().is_null() } {
-                    unsafe { pyo3::ffi::PyErr_Clear() };
-                    return false;
-                }
+                let bits = unsafe {
+                    if fast_abi && (*val_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyFloat_Type)
+                    {
+                        (*(val_ptr.byte_add(16) as *const u64)).to_le()
+                    } else {
+                        let f = pyo3::ffi::PyFloat_AsDouble(val_ptr);
+                        if f == -1.0 && !pyo3::ffi::PyErr_Occurred().is_null() {
+                            pyo3::ffi::PyErr_Clear();
+                            return false;
+                        }
+                        f.to_bits().to_le()
+                    }
+                };
                 if out.capacity() - cur_len < 13 {
                     out.reserve(4096);
                 }
@@ -1270,19 +1659,33 @@ impl BFast {
                     let dst = out.as_mut_ptr().add(cur_len);
                     ptr::write_unaligned(dst as *mut u32, id_u32);
                     *dst.add(4) = 0x40;
-                    ptr::write_unaligned(dst.add(5) as *mut u64, f.to_bits().to_le());
+                    ptr::write_unaligned(dst.add(5) as *mut u64, bits);
                     out.set_len(cur_len + 13);
                 }
                 true
             }
             FastFieldKind::String => {
-                let mut size: pyo3::ffi::Py_ssize_t = 0;
-                let utf8_ptr = unsafe { pyo3::ffi::PyUnicode_AsUTF8AndSize(val_ptr, &mut size) };
-                if utf8_ptr.is_null() {
-                    unsafe { pyo3::ffi::PyErr_Clear() };
-                    return false;
-                }
-                let str_len = size as usize;
+                let (utf8_ptr, str_len) = unsafe {
+                    if ascii_str_offset != 0
+                        && (*val_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyUnicode_Type)
+                        && (*val_ptr.byte_add(32).cast::<u8>() & 0x7C) == 0x64
+                    {
+                        let sz = *(val_ptr.byte_add(16) as *const isize);
+                        if sz >= 0 {
+                            (val_ptr.byte_add(ascii_str_offset) as *const u8, sz as usize)
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        let mut size: pyo3::ffi::Py_ssize_t = 0;
+                        let p = pyo3::ffi::PyUnicode_AsUTF8AndSize(val_ptr, &mut size);
+                        if p.is_null() {
+                            pyo3::ffi::PyErr_Clear();
+                            return false;
+                        }
+                        (p as *const u8, size as usize)
+                    }
+                };
                 let needed = 9 + str_len;
                 if out.capacity() - cur_len < needed {
                     out.reserve(needed.max(4096));
@@ -1292,12 +1695,51 @@ impl BFast {
                     ptr::write_unaligned(dst as *mut u32, id_u32);
                     *dst.add(4) = 0x50;
                     ptr::write_unaligned(dst.add(5) as *mut u32, (str_len as u32).to_le());
-                    ptr::copy_nonoverlapping(utf8_ptr as *const u8, dst.add(9), str_len);
+                    Self::copy_bytes_short(dst.add(9), utf8_ptr, str_len);
                     out.set_len(cur_len + needed);
                 }
                 true
             }
             FastFieldKind::FloatList => {
+                unsafe {
+                    if fast_abi && (*val_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyList_Type) {
+                        let len_py = *(val_ptr.byte_add(16) as *const isize);
+                        if len_py < 0 {
+                            return false;
+                        }
+                        let list_len = len_py as usize;
+                        let needed = 9 + list_len * 9;
+                        if out.capacity() - cur_len < needed {
+                            out.reserve(needed.max(4096));
+                        }
+                        let dst = out.as_mut_ptr().add(cur_len);
+                        ptr::write_unaligned(dst as *mut u32, id_u32);
+                        *dst.add(4) = 0x60;
+                        ptr::write_unaligned(dst.add(5) as *mut u32, (list_len as u32).to_le());
+                        let items_ptr =
+                            *(val_ptr.byte_add(24) as *const *const *mut pyo3::ffi::PyObject);
+                        let float_type = ptr::addr_of_mut!(pyo3::ffi::PyFloat_Type);
+                        let mut cur = dst.add(9);
+                        for j in 0..list_len {
+                            let elem_ptr = *items_ptr.add(j);
+                            let bits = if (*elem_ptr).ob_type == float_type {
+                                (*(elem_ptr.byte_add(16) as *const u64)).to_le()
+                            } else {
+                                let f = pyo3::ffi::PyFloat_AsDouble(elem_ptr);
+                                if f == -1.0 && !pyo3::ffi::PyErr_Occurred().is_null() {
+                                    pyo3::ffi::PyErr_Clear();
+                                    return false;
+                                }
+                                f.to_bits().to_le()
+                            };
+                            *cur = 0x40;
+                            ptr::write_unaligned(cur.add(1) as *mut u64, bits);
+                            cur = cur.add(9);
+                        }
+                        out.set_len(cur_len + needed);
+                        return true;
+                    }
+                }
                 let len_py = unsafe { pyo3::ffi::PyList_Size(val_ptr) };
                 if len_py < 0 {
                     unsafe { pyo3::ffi::PyErr_Clear() };
@@ -1330,6 +1772,78 @@ impl BFast {
                 true
             }
             FastFieldKind::IntList => {
+                unsafe {
+                    if fast_abi && (*val_ptr).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyList_Type) {
+                        let len_py = *(val_ptr.byte_add(16) as *const isize);
+                        if len_py < 0 {
+                            return false;
+                        }
+                        let list_len = len_py as usize;
+                        let max_needed = 9 + list_len * 9;
+                        if out.capacity() - cur_len < max_needed {
+                            out.reserve(max_needed.max(4096));
+                        }
+                        let dst = out.as_mut_ptr().add(cur_len);
+                        ptr::write_unaligned(dst as *mut u32, id_u32);
+                        *dst.add(4) = 0x60;
+                        ptr::write_unaligned(dst.add(5) as *mut u32, (list_len as u32).to_le());
+                        let items_ptr =
+                            *(val_ptr.byte_add(24) as *const *const *mut pyo3::ffi::PyObject);
+                        let long_type = ptr::addr_of_mut!(pyo3::ffi::PyLong_Type);
+                        let mut cur = dst.add(9);
+                        for j in 0..list_len {
+                            let elem_ptr = *items_ptr.add(j);
+                            if elem_ptr == py_true_ptr || elem_ptr == py_false_ptr {
+                                return false;
+                            }
+                            let n = if (*elem_ptr).ob_type == long_type {
+                                let tag = *(elem_ptr.byte_add(16) as *const usize);
+                                if tag == long_tag_one {
+                                    *(elem_ptr.byte_add(24) as *const u32) as i64
+                                } else if tag == long_tag_zero {
+                                    0
+                                } else {
+                                    let mut overflow: std::os::raw::c_int = 0;
+                                    let v = pyo3::ffi::PyLong_AsLongLongAndOverflow(
+                                        elem_ptr,
+                                        &mut overflow,
+                                    );
+                                    if overflow != 0
+                                        || (v == -1 && !pyo3::ffi::PyErr_Occurred().is_null())
+                                    {
+                                        pyo3::ffi::PyErr_Clear();
+                                        return false;
+                                    }
+                                    v
+                                }
+                            } else {
+                                let mut overflow: std::os::raw::c_int = 0;
+                                let v = pyo3::ffi::PyLong_AsLongLongAndOverflow(
+                                    elem_ptr,
+                                    &mut overflow,
+                                );
+                                if overflow != 0
+                                    || (v == -1 && !pyo3::ffi::PyErr_Occurred().is_null())
+                                {
+                                    pyo3::ffi::PyErr_Clear();
+                                    return false;
+                                }
+                                v
+                            };
+                            if (n as u64) < 8 {
+                                *cur = 0x30 | (n as u8);
+                                cur = cur.add(1);
+                            } else {
+                                *cur = 0x38;
+                                ptr::write_unaligned(cur.add(1) as *mut i64, n.to_le());
+                                cur = cur.add(9);
+                            }
+                        }
+                        let new_len = cur.offset_from(out.as_ptr()) as usize;
+                        out.set_len(new_len);
+                        return true;
+                    }
+                }
                 let len_py = unsafe { pyo3::ffi::PyList_Size(val_ptr) };
                 if len_py < 0 {
                     unsafe { pyo3::ffi::PyErr_Clear() };
