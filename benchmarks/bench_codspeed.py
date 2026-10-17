@@ -6,8 +6,10 @@ import b_fast
 
 
 @pytest.fixture(scope="session")
-def encoder():
-    return b_fast.BFast()
+def encoder(users_100):
+    enc = b_fast.BFast()
+    enc.encode_packed(users_100, compress=False)
+    return enc
 
 
 @pytest.fixture(scope="session")

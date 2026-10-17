@@ -629,6 +629,81 @@ impl BFastNativeSender {
         non_blocking: bool,
     ) -> PyResult<usize> {
         let mut total_sent = 0;
+
+        if unsafe { pyo3::ffi::PyList_CheckExact(iterable.as_ptr()) != 0 } {
+            let list_ptr = iterable.as_ptr();
+            let list_len = unsafe { pyo3::ffi::PyList_Size(list_ptr) };
+            if list_len <= 0 {
+                return Ok(0);
+            }
+
+            if !compress && self.cached_template.is_none() {
+                let first_ptr = unsafe { pyo3::ffi::PyList_GetItem(list_ptr, 0) };
+                let first_bound = unsafe { Bound::from_borrowed_ptr(py, first_ptr) };
+                self.cached_template = self.b_fast.prepare_homogeneous_template(&first_bound);
+            }
+
+            for i in 0..list_len {
+                let item_ptr = unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i) };
+                let mut processed = false;
+
+                if let Some(ref t) = self.cached_template {
+                    let prev_len = self.buffer.len();
+                    if self
+                        .b_fast
+                        .encode_homogeneous_frame(item_ptr, py, t, &mut self.buffer)
+                    {
+                        total_sent += self.buffer.len() - prev_len;
+                        processed = true;
+                    } else {
+                        self.cached_template = None;
+                    }
+                }
+
+                if !processed {
+                    let item = unsafe { Bound::from_borrowed_ptr(py, item_ptr) };
+                    self.b_fast.encode_packed_internal(&item, compress)?;
+                    let is_compressed = if self.b_fast.last_was_compressed {
+                        1u8
+                    } else {
+                        0u8
+                    };
+                    let slice_len = if self.b_fast.last_was_compressed {
+                        self.b_fast.compressed_buffer.len()
+                    } else {
+                        self.b_fast.work_buffer.len()
+                    };
+                    let len = slice_len as u32;
+                    let header = [
+                        (len & 0xFF) as u8,
+                        ((len >> 8) & 0xFF) as u8,
+                        ((len >> 16) & 0xFF) as u8,
+                        ((len >> 24) & 0xFF) as u8,
+                        crate::streaming::FRAME_DATA,
+                        is_compressed,
+                    ];
+                    let payload_slice = if self.b_fast.last_was_compressed {
+                        &self.b_fast.compressed_buffer[..slice_len]
+                    } else {
+                        &self.b_fast.work_buffer[..slice_len]
+                    };
+                    total_sent += 6 + slice_len;
+                    self.buffer.extend_from_slice(&header);
+                    self.buffer.extend_from_slice(payload_slice);
+                }
+
+                if self.buffer.len() >= self.buffer_size {
+                    py.allow_threads(|| {
+                        fallback_socket_send(sock_fd, &self.buffer, non_blocking)
+                            .map_err(io_error_to_py_err)
+                    })?;
+                    self.buffer.clear();
+                }
+            }
+
+            return Ok(total_sent);
+        }
+
         let mut iter = iterable.try_iter()?;
 
         let first_item = iter.next();
