@@ -65,6 +65,7 @@ class BFastStreamingResponse(StreamingResponse):
         status_code: int = 200,
         headers: Mapping[str, str] | None = None,
         background: Any = None,
+        native: bool = False,
         **kwargs: Any,
     ) -> None:
         if not FASTAPI_AVAILABLE:
@@ -104,3 +105,4 @@ class BFastStreamingResponse(StreamingResponse):
             background=background,
             **kwargs,
         )
+        self.native = native
