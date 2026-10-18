@@ -43,7 +43,6 @@ pub(crate) enum FastFieldKind {
     Generic,
 }
 
-
 #[derive(Clone, Copy, Default)]
 pub(crate) struct FastFieldCacheEntry {
     pub(crate) key_addr: usize,
@@ -846,7 +845,10 @@ impl BFast {
         }
 
         let active_fields = unsafe {
-            std::slice::from_raw_parts(fields_uninit.as_ptr() as *const FastFieldCacheEntry, field_count)
+            std::slice::from_raw_parts(
+                fields_uninit.as_ptr() as *const FastFieldCacheEntry,
+                field_count,
+            )
         };
 
         let mut dk_header_word = 0u64;
@@ -1291,7 +1293,10 @@ impl BFast {
 
                 if failed_idx != usize::MAX {
                     pyo3::ffi::Py_DECREF(pybytes_ptr);
-                    if failed_idx == 0 && schema_ready && self.populate_pydantic_schema_cache(first_ptr) {
+                    if failed_idx == 0
+                        && schema_ready
+                        && self.populate_pydantic_schema_cache(first_ptr)
+                    {
                         schema_ready = false;
                         continue;
                     }
