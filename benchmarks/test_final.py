@@ -50,7 +50,7 @@ def benchmark_compression():
         result = encoder.encode_packed(users_small, compress=False)
         times.append((time.perf_counter() - start) * 1000)
     print(
-        f"Without compression:  {sum(times)/len(times):6.2f}ms  |  {len(result):,} bytes"
+        f"Without compression:  {sum(times) / len(times):6.2f}ms  |  {len(result):,} bytes"
     )
 
     # With compression
@@ -60,7 +60,7 @@ def benchmark_compression():
         result = encoder.encode_packed(users_small, compress=True)
         times.append((time.perf_counter() - start) * 1000)
     print(
-        f"With compression:     {sum(times)/len(times):6.2f}ms  |  {len(result):,} bytes"
+        f"With compression:     {sum(times) / len(times):6.2f}ms  |  {len(result):,} bytes"
     )
 
     # Medium payload (10,000 items)
@@ -90,7 +90,7 @@ def benchmark_compression():
         result = encoder.encode_packed(users_medium, compress=False)
         times.append((time.perf_counter() - start) * 1000)
     print(
-        f"Without compression:  {sum(times)/len(times):6.2f}ms  |  {len(result):,} bytes"
+        f"Without compression:  {sum(times) / len(times):6.2f}ms  |  {len(result):,} bytes"
     )
 
     # With compression
@@ -100,7 +100,7 @@ def benchmark_compression():
         result = encoder.encode_packed(users_medium, compress=True)
         times.append((time.perf_counter() - start) * 1000)
     print(
-        f"With compression:     {sum(times)/len(times):6.2f}ms  |  {len(result):,} bytes"
+        f"With compression:     {sum(times) / len(times):6.2f}ms  |  {len(result):,} bytes"
     )
 
     # Large payload (50,000 items)
@@ -130,7 +130,7 @@ def benchmark_compression():
         result = encoder.encode_packed(users_large, compress=False)
         times.append((time.perf_counter() - start) * 1000)
     print(
-        f"Without compression:  {sum(times)/len(times):7.2f}ms  |  {len(result):,} bytes"
+        f"Without compression:  {sum(times) / len(times):7.2f}ms  |  {len(result):,} bytes"
     )
 
     # With compression
@@ -140,7 +140,7 @@ def benchmark_compression():
         result = encoder.encode_packed(users_large, compress=True)
         times.append((time.perf_counter() - start) * 1000)
     print(
-        f"With compression:     {sum(times)/len(times):7.2f}ms  |  {len(result):,} bytes"
+        f"With compression:     {sum(times) / len(times):7.2f}ms  |  {len(result):,} bytes"
     )
 
     print("\n" + "=" * 70)

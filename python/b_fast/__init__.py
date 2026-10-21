@@ -4,7 +4,14 @@ B-FAST: Binary Fast Adaptive Serialization Transfer
 Ultra-fast binary serialization library with Rust backend.
 """
 
-from ._b_fast import BFast, BFastError, BFastLazyView
+from ._b_fast import (
+    BFast,
+    BFastError,
+    BFastLazyView,
+    BFastNativeSender,
+    is_native_available,
+    send_native_socket,
+)
 from .data import decode_dataframe, encode_dataframe
 from .django import BFastHttpResponse, BFastRenderer, BFastStreamingHttpResponse
 from .fastapi import BFastMiddleware, is_bfast_requested
@@ -22,7 +29,7 @@ from .mcp import (
     stream_mcp_tool_results,
     wrap_mcp_tool_output,
 )
-from .streaming import BFastStreamDecoder, BFastStreamEncoder
+from .streaming import BFastSocketStreamer, BFastStreamDecoder, BFastStreamEncoder
 
 try:
     from ._b_fast import __version__
@@ -60,6 +67,10 @@ __all__ = [
     "decode_dataframe",
     "BFastStreamEncoder",
     "BFastStreamDecoder",
+    "BFastSocketStreamer",
+    "BFastNativeSender",
+    "is_native_available",
+    "send_native_socket",
     "wrap_mcp_tool_output",
     "stream_mcp_tool_results",
     "stream_mcp_async_tool_results",
