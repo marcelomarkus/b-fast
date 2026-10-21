@@ -51,6 +51,27 @@ pub(crate) struct FastFieldCacheEntry {
     pub(crate) kind: FastFieldKind,
 }
 
+pub(crate) struct BatchDirectContext {
+    pub(crate) fields_ptr: *const FastFieldCacheEntry,
+    pub(crate) field_count: usize,
+    pub(crate) is_pydantic: bool,
+    pub(crate) first_type_ptr: *mut pyo3::ffi::PyTypeObject,
+    pub(crate) obj_dict_offset: isize,
+    pub(crate) dk_header_word: u64,
+    pub(crate) entries_offset: usize,
+    pub(crate) entry_stride: usize,
+    pub(crate) ascii_str_offset: usize,
+    pub(crate) long_tag_zero: usize,
+    pub(crate) long_tag_one: usize,
+    pub(crate) py_none_ptr: *mut pyo3::ffi::PyObject,
+    pub(crate) py_true_ptr: *mut pyo3::ffi::PyObject,
+    pub(crate) py_false_ptr: *mut pyo3::ffi::PyObject,
+    pub(crate) long_type: *mut pyo3::ffi::PyTypeObject,
+    pub(crate) float_type: *mut pyo3::ffi::PyTypeObject,
+    pub(crate) unicode_type: *mut pyo3::ffi::PyTypeObject,
+    pub(crate) list_type: *mut pyo3::ffi::PyTypeObject,
+}
+
 pub(crate) struct TemplateField {
     pub(crate) key: pyo3::Py<pyo3::types::PyAny>,
     pub(crate) id_bytes: [u8; 4],
@@ -959,38 +980,33 @@ impl BFast {
                 let base = self.work_buffer.as_mut_ptr();
                 let mut dst = base.add(11 + st_len);
                 let end = base.add(self.work_buffer.capacity());
-                let fields_ptr = active_fields.as_ptr();
-                let ascii_off = self.ascii_str_offset;
-                let lt0 = self.long_tag_zero;
-                let lt1 = self.long_tag_one;
-                let py_none_ptr = self.py_none.as_ptr();
-                let py_true_ptr = self.py_true.as_ptr();
-                let py_false_ptr = self.py_false.as_ptr();
+                let ctx = BatchDirectContext {
+                    fields_ptr: active_fields.as_ptr(),
+                    field_count,
+                    is_pydantic,
+                    first_type_ptr,
+                    obj_dict_offset,
+                    dk_header_word,
+                    entries_offset,
+                    entry_stride,
+                    ascii_str_offset: self.ascii_str_offset,
+                    long_tag_zero: self.long_tag_zero,
+                    long_tag_one: self.long_tag_one,
+                    py_none_ptr: self.py_none.as_ptr(),
+                    py_true_ptr: self.py_true.as_ptr(),
+                    py_false_ptr: self.py_false.as_ptr(),
+                    long_type: ptr::addr_of_mut!(pyo3::ffi::PyLong_Type),
+                    float_type: ptr::addr_of_mut!(pyo3::ffi::PyFloat_Type),
+                    unicode_type: ptr::addr_of_mut!(pyo3::ffi::PyUnicode_Type),
+                    list_type: ptr::addr_of_mut!(pyo3::ffi::PyList_Type),
+                };
 
                 while start_idx < len {
                     let item_ptr = *list_items_ptr.add(start_idx);
                     if item_ptr.is_null() {
                         break;
                     }
-                    let next_dst = Self::serialize_item_makeys_raw(
-                        dst,
-                        end,
-                        item_ptr,
-                        fields_ptr,
-                        field_count,
-                        is_pydantic,
-                        first_type_ptr,
-                        obj_dict_offset,
-                        dk_header_word,
-                        entries_offset,
-                        entry_stride,
-                        ascii_off,
-                        lt0,
-                        lt1,
-                        py_none_ptr,
-                        py_true_ptr,
-                        py_false_ptr,
-                    );
+                    let next_dst = Self::serialize_item_makeys_raw(dst, end, item_ptr, &ctx);
                     if next_dst.is_null() {
                         break;
                     }
@@ -1254,80 +1270,40 @@ impl BFast {
                 ptr::write_unaligned(list_hdr_ptr.add(1) as *mut u32, (len as u32).to_le());
 
                 let mut dst = base.add(11 + st_len);
-                let fields_ptr = self.cached_schema_fields.as_ptr();
-                let ascii_off = self.ascii_str_offset;
-                let lt0 = self.long_tag_zero;
-                let lt1 = self.long_tag_one;
-                let py_none_ptr = self.py_none.as_ptr();
-                let py_true_ptr = self.py_true.as_ptr();
-                let py_false_ptr = self.py_false.as_ptr();
-
-                let is_user6_shape = field_count == 6
-                    && (*fields_ptr).kind == FastFieldKind::Int
-                    && (*fields_ptr.add(1)).kind == FastFieldKind::String
-                    && (*fields_ptr.add(2)).kind == FastFieldKind::String
-                    && (*fields_ptr.add(3)).kind == FastFieldKind::Bool
-                    && (*fields_ptr.add(4)).kind == FastFieldKind::FloatList
-                    && (*fields_ptr.add(5)).kind == FastFieldKind::String;
+                let ctx = BatchDirectContext {
+                    fields_ptr: self.cached_schema_fields.as_ptr(),
+                    field_count,
+                    is_pydantic,
+                    first_type_ptr,
+                    obj_dict_offset,
+                    dk_header_word,
+                    entries_offset,
+                    entry_stride,
+                    ascii_str_offset: self.ascii_str_offset,
+                    long_tag_zero: self.long_tag_zero,
+                    long_tag_one: self.long_tag_one,
+                    py_none_ptr: self.py_none.as_ptr(),
+                    py_true_ptr: self.py_true.as_ptr(),
+                    py_false_ptr: self.py_false.as_ptr(),
+                    long_type: ptr::addr_of_mut!(pyo3::ffi::PyLong_Type),
+                    float_type: ptr::addr_of_mut!(pyo3::ffi::PyFloat_Type),
+                    unicode_type: ptr::addr_of_mut!(pyo3::ffi::PyUnicode_Type),
+                    list_type: ptr::addr_of_mut!(pyo3::ffi::PyList_Type),
+                };
 
                 let mut failed_idx = usize::MAX;
-                if is_user6_shape {
-                    let next_dst = Self::serialize_batch_user6(
-                        dst,
-                        end,
-                        len,
-                        list_items_ptr,
-                        fields_ptr,
-                        is_pydantic,
-                        first_type_ptr,
-                        obj_dict_offset,
-                        dk_header_word,
-                        entries_offset,
-                        entry_stride,
-                        ascii_off,
-                        lt0,
-                        lt1,
-                        py_none_ptr,
-                        py_true_ptr,
-                        py_false_ptr,
-                    );
+                for i in 0..len {
+                    let item_ptr = *list_items_ptr.add(i);
+                    if item_ptr.is_null() {
+                        failed_idx = i;
+                        break;
+                    }
+                    let next_dst = Self::serialize_item_makeys_raw(dst, end, item_ptr, &ctx);
                     if next_dst.is_null() {
-                        failed_idx = 0;
-                    } else {
-                        dst = next_dst;
+                        failed_idx = i;
+                        break;
                     }
-                } else {
-                    for i in 0..len {
-                        let item_ptr = *list_items_ptr.add(i);
-                        if item_ptr.is_null() {
-                            failed_idx = i;
-                            break;
-                        }
-                        let next_dst = Self::serialize_item_makeys_raw(
-                            dst,
-                            end,
-                            item_ptr,
-                            fields_ptr,
-                            field_count,
-                            is_pydantic,
-                            first_type_ptr,
-                            obj_dict_offset,
-                            dk_header_word,
-                            entries_offset,
-                            entry_stride,
-                            ascii_off,
-                            lt0,
-                            lt1,
-                            py_none_ptr,
-                            py_true_ptr,
-                            py_false_ptr,
-                        );
-                        if next_dst.is_null() {
-                            failed_idx = i;
-                            break;
-                        }
-                        dst = next_dst;
-                    }
+                    dst = next_dst;
                 }
 
                 if failed_idx != usize::MAX {
@@ -1352,331 +1328,18 @@ impl BFast {
         }
     }
 
-    #[inline(never)]
-    #[allow(clippy::too_many_arguments)]
-    unsafe fn serialize_batch_user6(
-        mut dst: *mut u8,
-        end: *mut u8,
-        len: usize,
-        list_items_ptr: *const *mut pyo3::ffi::PyObject,
-        fields_ptr: *const FastFieldCacheEntry,
-        is_pydantic: bool,
-        first_type_ptr: *mut pyo3::ffi::PyTypeObject,
-        obj_dict_offset: isize,
-        dk_header_word: u64,
-        entries_offset: usize,
-        entry_stride: usize,
-        ascii_off: usize,
-        lt0: usize,
-        lt1: usize,
-        py_none_ptr: *mut pyo3::ffi::PyObject,
-        py_true_ptr: *mut pyo3::ffi::PyObject,
-        py_false_ptr: *mut pyo3::ffi::PyObject,
-    ) -> *mut u8 {
-        let f0 = &*fields_ptr;
-        let f1 = &*fields_ptr.add(1);
-        let f2 = &*fields_ptr.add(2);
-        let f3 = &*fields_ptr.add(3);
-        let f4 = &*fields_ptr.add(4);
-        let f5 = &*fields_ptr.add(5);
-
-        let id0 = f0.id_u32;
-        let id1 = f1.id_u32;
-        let id2 = f2.id_u32;
-        let id3 = f3.id_u32;
-        let id4 = f4.id_u32;
-        let id5 = f5.id_u32;
-
-        let k0 = f0.key_addr;
-        let k1 = f1.key_addr;
-        let k2 = f2.key_addr;
-        let k3 = f3.key_addr;
-        let k4 = f4.key_addr;
-        let k5 = f5.key_addr;
-
-        let off0 = entries_offset;
-        let off1 = entries_offset + entry_stride;
-        let off2 = entries_offset + entry_stride * 2;
-        let off3 = entries_offset + entry_stride * 3;
-        let off4 = entries_offset + entry_stride * 4;
-        let off5 = entries_offset + entry_stride * 5;
-
-        let long_type = ptr::addr_of_mut!(pyo3::ffi::PyLong_Type);
-        let float_type = ptr::addr_of_mut!(pyo3::ffi::PyFloat_Type);
-        let unicode_type = ptr::addr_of_mut!(pyo3::ffi::PyUnicode_Type);
-        let list_type = ptr::addr_of_mut!(pyo3::ffi::PyList_Type);
-
-        for i in 0..len {
-            let item_ptr = *list_items_ptr.add(i);
-            if item_ptr.is_null() {
-                return ptr::null_mut();
-            }
-
-            let dict_ptr = if is_pydantic {
-                if (*item_ptr).ob_type != first_type_ptr {
-                    return ptr::null_mut();
-                }
-                let d = *(item_ptr.byte_offset(obj_dict_offset) as *const *mut pyo3::ffi::PyObject);
-                if d.is_null() || (*d).ob_type != ptr::addr_of_mut!(pyo3::ffi::PyDict_Type) {
-                    return ptr::null_mut();
-                }
-                d
-            } else {
-                if (*item_ptr).ob_type != ptr::addr_of_mut!(pyo3::ffi::PyDict_Type) {
-                    return ptr::null_mut();
-                }
-                item_ptr
-            };
-
-            if *(dict_ptr.byte_add(16) as *const usize) != 6
-                || *(dict_ptr.byte_add(40) as *const usize) != 0
-            {
-                return ptr::null_mut();
-            }
-            let ma_keys = *(dict_ptr.byte_add(32) as *const *const u8);
-            if ma_keys.is_null()
-                || (((*(ma_keys.add(8) as *const u32) & 0x00FF_FFFF) | 0x8000_0000) as u64)
-                    != dk_header_word
-                || *(ma_keys.add(24) as *const usize) != 6
-            {
-                return ptr::null_mut();
-            }
-
-            if (end as usize).wrapping_sub(dst as usize) < 512 {
-                return ptr::null_mut();
-            }
-
-            *dst = 0x70;
-            dst = dst.add(1);
-
-            // Field 0: Int (id)
-            let entry0 = ma_keys.add(off0);
-            if *(entry0 as *const usize) != k0 {
-                return ptr::null_mut();
-            }
-            let val0 = *(entry0.add(8) as *const *mut pyo3::ffi::PyObject);
-            if val0.is_null() {
-                return ptr::null_mut();
-            }
-            if val0 == py_none_ptr {
-                ptr::write_unaligned(dst as *mut u64, (id0 as u64) | (0x10u64 << 32));
-                dst = dst.add(5);
-            } else {
-                if (*val0).ob_type != long_type {
-                    return ptr::null_mut();
-                }
-                let tag = *(val0.byte_add(16) as *const usize);
-                if tag == lt1 {
-                    let d = *(val0.byte_add(24) as *const u32);
-                    if d < 8 {
-                        let c = (id0 as u64) | (((0x30 | d) as u64) << 32);
-                        ptr::write_unaligned(dst as *mut u64, c);
-                        dst = dst.add(5);
-                    } else {
-                        let c = (id0 as u64) | (0x38u64 << 32);
-                        ptr::write_unaligned(dst as *mut u64, c);
-                        ptr::write_unaligned(dst.add(5) as *mut u64, (d as u64).to_le());
-                        dst = dst.add(13);
-                    }
-                } else if tag == lt0 {
-                    let c = (id0 as u64) | (0x30u64 << 32);
-                    ptr::write_unaligned(dst as *mut u64, c);
-                    dst = dst.add(5);
-                } else {
-                    return ptr::null_mut();
-                }
-            }
-
-            // Field 1: String (name)
-            let entry1 = ma_keys.add(off1);
-            if *(entry1 as *const usize) != k1 {
-                return ptr::null_mut();
-            }
-            let val1 = *(entry1.add(8) as *const *mut pyo3::ffi::PyObject);
-            if val1.is_null() {
-                return ptr::null_mut();
-            }
-            if val1 == py_none_ptr {
-                ptr::write_unaligned(dst as *mut u64, (id1 as u64) | (0x10u64 << 32));
-                dst = dst.add(5);
-            } else {
-                if (*val1).ob_type != unicode_type
-                    || (*val1.byte_add(32).cast::<u8>() & 0x7C) != 0x64
-                {
-                    return ptr::null_mut();
-                }
-                let sz = *(val1.byte_add(16) as *const isize);
-                if !(0..=64).contains(&sz) {
-                    return ptr::null_mut();
-                }
-                let str_len = sz as usize;
-                let c = (id1 as u64) | (0x50u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                ptr::write_unaligned(dst.add(5) as *mut u32, (str_len as u32).to_le());
-                let utf8_ptr = val1.byte_add(ascii_off) as *const u8;
-                ptr::copy_nonoverlapping(utf8_ptr, dst.add(9), str_len);
-                dst = dst.add(9 + str_len);
-            }
-
-            // Field 2: String (email)
-            let entry2 = ma_keys.add(off2);
-            if *(entry2 as *const usize) != k2 {
-                return ptr::null_mut();
-            }
-            let val2 = *(entry2.add(8) as *const *mut pyo3::ffi::PyObject);
-            if val2.is_null() {
-                return ptr::null_mut();
-            }
-            if val2 == py_none_ptr {
-                ptr::write_unaligned(dst as *mut u64, (id2 as u64) | (0x10u64 << 32));
-                dst = dst.add(5);
-            } else {
-                if (*val2).ob_type != unicode_type
-                    || (*val2.byte_add(32).cast::<u8>() & 0x7C) != 0x64
-                {
-                    return ptr::null_mut();
-                }
-                let sz = *(val2.byte_add(16) as *const isize);
-                if !(0..=64).contains(&sz) {
-                    return ptr::null_mut();
-                }
-                let str_len = sz as usize;
-                let c = (id2 as u64) | (0x50u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                ptr::write_unaligned(dst.add(5) as *mut u32, (str_len as u32).to_le());
-                let utf8_ptr = val2.byte_add(ascii_off) as *const u8;
-                ptr::copy_nonoverlapping(utf8_ptr, dst.add(9), str_len);
-                dst = dst.add(9 + str_len);
-            }
-
-            // Field 3: Bool (active)
-            let entry3 = ma_keys.add(off3);
-            if *(entry3 as *const usize) != k3 {
-                return ptr::null_mut();
-            }
-            let val3 = *(entry3.add(8) as *const *mut pyo3::ffi::PyObject);
-            if val3.is_null() {
-                return ptr::null_mut();
-            }
-            if val3 == py_true_ptr {
-                let c = (id3 as u64) | (0x21u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                dst = dst.add(5);
-            } else if val3 == py_false_ptr {
-                let c = (id3 as u64) | (0x20u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                dst = dst.add(5);
-            } else if val3 == py_none_ptr {
-                let c = (id3 as u64) | (0x10u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                dst = dst.add(5);
-            } else {
-                return ptr::null_mut();
-            }
-
-            // Field 4: FloatList (scores)
-            let entry4 = ma_keys.add(off4);
-            if *(entry4 as *const usize) != k4 {
-                return ptr::null_mut();
-            }
-            let val4 = *(entry4.add(8) as *const *mut pyo3::ffi::PyObject);
-            if val4.is_null() {
-                return ptr::null_mut();
-            }
-            if val4 == py_none_ptr {
-                ptr::write_unaligned(dst as *mut u64, (id4 as u64) | (0x10u64 << 32));
-                dst = dst.add(5);
-            } else {
-                if (*val4).ob_type != list_type {
-                    return ptr::null_mut();
-                }
-                let sz = *(val4.byte_add(16) as *const isize);
-                if !(0..=16).contains(&sz) {
-                    return ptr::null_mut();
-                }
-                let list_len = sz as usize;
-                let c = (id4 as u64) | (0x60u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                ptr::write_unaligned(dst.add(5) as *mut u32, (list_len as u32).to_le());
-                let items_ptr = *(val4.byte_add(24) as *const *const *mut pyo3::ffi::PyObject);
-                let mut cur = dst.add(9);
-                for j in 0..list_len {
-                    let elem_ptr = *items_ptr.add(j);
-                    if (*elem_ptr).ob_type != float_type {
-                        return ptr::null_mut();
-                    }
-                    let bits = (*(elem_ptr.byte_add(16) as *const u64)).to_le();
-                    *cur = 0x40;
-                    ptr::write_unaligned(cur.add(1) as *mut u64, bits);
-                    cur = cur.add(9);
-                }
-                dst = cur;
-            }
-
-            // Field 5: String (description)
-            let entry5 = ma_keys.add(off5);
-            if *(entry5 as *const usize) != k5 {
-                return ptr::null_mut();
-            }
-            let val5 = *(entry5.add(8) as *const *mut pyo3::ffi::PyObject);
-            if val5.is_null() {
-                return ptr::null_mut();
-            }
-            if val5 == py_none_ptr {
-                ptr::write_unaligned(dst as *mut u64, (id5 as u64) | (0x10u64 << 32));
-                dst = dst.add(5);
-            } else {
-                if (*val5).ob_type != unicode_type
-                    || (*val5.byte_add(32).cast::<u8>() & 0x7C) != 0x64
-                {
-                    return ptr::null_mut();
-                }
-                let sz = *(val5.byte_add(16) as *const isize);
-                if !(0..=64).contains(&sz) {
-                    return ptr::null_mut();
-                }
-                let str_len = sz as usize;
-                let c = (id5 as u64) | (0x50u64 << 32);
-                ptr::write_unaligned(dst as *mut u64, c);
-                ptr::write_unaligned(dst.add(5) as *mut u32, (str_len as u32).to_le());
-                let utf8_ptr = val5.byte_add(ascii_off) as *const u8;
-                ptr::copy_nonoverlapping(utf8_ptr, dst.add(9), str_len);
-                dst = dst.add(9 + str_len);
-            }
-
-            *dst = 0x7F;
-            dst = dst.add(1);
-        }
-
-        dst
-    }
-
     #[inline(always)]
-    #[allow(clippy::too_many_arguments)]
     unsafe fn serialize_item_makeys_raw(
         mut dst: *mut u8,
         end: *mut u8,
         item_ptr: *mut pyo3::ffi::PyObject,
-        fields_ptr: *const FastFieldCacheEntry,
-        field_count: usize,
-        is_pydantic: bool,
-        first_type_ptr: *mut pyo3::ffi::PyTypeObject,
-        obj_dict_offset: isize,
-        dk_header_word: u64,
-        entries_offset: usize,
-        entry_stride: usize,
-        ascii_str_offset: usize,
-        long_tag_zero: usize,
-        long_tag_one: usize,
-        py_none_ptr: *mut pyo3::ffi::PyObject,
-        py_true_ptr: *mut pyo3::ffi::PyObject,
-        py_false_ptr: *mut pyo3::ffi::PyObject,
+        ctx: &BatchDirectContext,
     ) -> *mut u8 {
-        let dict_ptr = if is_pydantic {
-            if (*item_ptr).ob_type != first_type_ptr {
+        let dict_ptr = if ctx.is_pydantic {
+            if (*item_ptr).ob_type != ctx.first_type_ptr {
                 return ptr::null_mut();
             }
-            let d = *(item_ptr.byte_offset(obj_dict_offset) as *const *mut pyo3::ffi::PyObject);
+            let d = *(item_ptr.byte_offset(ctx.obj_dict_offset) as *const *mut pyo3::ffi::PyObject);
             if d.is_null() || (*d).ob_type != ptr::addr_of_mut!(pyo3::ffi::PyDict_Type) {
                 return ptr::null_mut();
             }
@@ -1688,7 +1351,7 @@ impl BFast {
             item_ptr
         };
 
-        if *(dict_ptr.byte_add(16) as *const usize) != field_count
+        if *(dict_ptr.byte_add(16) as *const usize) != ctx.field_count
             || *(dict_ptr.byte_add(40) as *const usize) != 0
         {
             return ptr::null_mut();
@@ -1696,8 +1359,8 @@ impl BFast {
         let ma_keys = *(dict_ptr.byte_add(32) as *const *const u8);
         if ma_keys.is_null()
             || (((*(ma_keys.add(8) as *const u32) & 0x00FF_FFFF) | 0x8000_0000) as u64)
-                != dk_header_word
-            || *(ma_keys.add(24) as *const usize) != field_count
+                != ctx.dk_header_word
+            || *(ma_keys.add(24) as *const usize) != ctx.field_count
         {
             return ptr::null_mut();
         }
@@ -1709,11 +1372,9 @@ impl BFast {
         *dst = 0x70;
         dst = dst.add(1);
 
-        let mut entry_ptr = ma_keys.add(entries_offset);
-        let long_type = ptr::addr_of_mut!(pyo3::ffi::PyLong_Type);
-        let float_type = ptr::addr_of_mut!(pyo3::ffi::PyFloat_Type);
-        let unicode_type = ptr::addr_of_mut!(pyo3::ffi::PyUnicode_Type);
-        let list_type = ptr::addr_of_mut!(pyo3::ffi::PyList_Type);
+        let mut entry_ptr = ma_keys.add(ctx.entries_offset);
+        let field_count = ctx.field_count;
+        let fields_ptr = ctx.fields_ptr;
 
         for f_idx in 0..field_count {
             let field = &*fields_ptr.add(f_idx);
@@ -1725,62 +1386,52 @@ impl BFast {
             if val_ptr.is_null() {
                 return ptr::null_mut();
             }
-            entry_ptr = entry_ptr.add(entry_stride);
+            entry_ptr = entry_ptr.add(ctx.entry_stride);
 
-            let id_u32 = field.id_u32;
-            ptr::write_unaligned(dst as *mut u32, id_u32);
+            let id = field.id_u32 as u64;
 
-            if val_ptr == py_none_ptr {
-                *dst.add(4) = 0x10;
+            if val_ptr == ctx.py_none_ptr {
+                ptr::write_unaligned(dst as *mut u64, id | (0x10u64 << 32));
                 dst = dst.add(5);
                 continue;
             }
 
             match field.kind {
                 FastFieldKind::Int => {
-                    if (*val_ptr).ob_type != long_type {
+                    if (*val_ptr).ob_type != ctx.long_type {
                         return ptr::null_mut();
                     }
                     let tag = *(val_ptr.byte_add(16) as *const usize);
-                    if tag == long_tag_one {
+                    if tag == ctx.long_tag_one {
                         let d = *(val_ptr.byte_add(24) as *const u32);
                         if d < 8 {
-                            *dst.add(4) = 0x30 | (d as u8);
+                            ptr::write_unaligned(dst as *mut u64, id | (((0x30 | d) as u64) << 32));
                             dst = dst.add(5);
                         } else {
-                            *dst.add(4) = 0x38;
+                            ptr::write_unaligned(dst as *mut u64, id | (0x38u64 << 32));
                             ptr::write_unaligned(dst.add(5) as *mut u64, (d as u64).to_le());
                             dst = dst.add(13);
                         }
-                    } else if tag == long_tag_zero {
-                        *dst.add(4) = 0x30;
+                    } else if tag == ctx.long_tag_zero {
+                        ptr::write_unaligned(dst as *mut u64, id | (0x30u64 << 32));
                         dst = dst.add(5);
                     } else {
                         return ptr::null_mut();
                     }
                 }
-                FastFieldKind::Float => {
-                    if (*val_ptr).ob_type != float_type {
-                        return ptr::null_mut();
-                    }
-                    let bits = (*(val_ptr.byte_add(16) as *const u64)).to_le();
-                    *dst.add(4) = 0x40;
-                    ptr::write_unaligned(dst.add(5) as *mut u64, bits);
-                    dst = dst.add(13);
-                }
                 FastFieldKind::Bool => {
-                    if val_ptr == py_true_ptr {
-                        *dst.add(4) = 0x21;
+                    if val_ptr == ctx.py_true_ptr {
+                        ptr::write_unaligned(dst as *mut u64, id | (0x21u64 << 32));
                         dst = dst.add(5);
-                    } else if val_ptr == py_false_ptr {
-                        *dst.add(4) = 0x20;
+                    } else if val_ptr == ctx.py_false_ptr {
+                        ptr::write_unaligned(dst as *mut u64, id | (0x20u64 << 32));
                         dst = dst.add(5);
                     } else {
                         return ptr::null_mut();
                     }
                 }
                 FastFieldKind::String => {
-                    if (*val_ptr).ob_type != unicode_type
+                    if (*val_ptr).ob_type != ctx.unicode_type
                         || (*val_ptr.byte_add(32).cast::<u8>() & 0x7C) != 0x64
                     {
                         return ptr::null_mut();
@@ -1793,14 +1444,23 @@ impl BFast {
                     if (end as usize).wrapping_sub(dst as usize) < 9 + str_len {
                         return ptr::null_mut();
                     }
-                    *dst.add(4) = 0x50;
+                    ptr::write_unaligned(dst as *mut u64, id | (0x50u64 << 32));
                     ptr::write_unaligned(dst.add(5) as *mut u32, (str_len as u32).to_le());
-                    let utf8_ptr = val_ptr.byte_add(ascii_str_offset) as *const u8;
+                    let utf8_ptr = val_ptr.byte_add(ctx.ascii_str_offset) as *const u8;
                     ptr::copy_nonoverlapping(utf8_ptr, dst.add(9), str_len);
                     dst = dst.add(9 + str_len);
                 }
+                FastFieldKind::Float => {
+                    if (*val_ptr).ob_type != ctx.float_type {
+                        return ptr::null_mut();
+                    }
+                    let bits = (*(val_ptr.byte_add(16) as *const u64)).to_le();
+                    ptr::write_unaligned(dst as *mut u64, id | (0x40u64 << 32));
+                    ptr::write_unaligned(dst.add(5) as *mut u64, bits);
+                    dst = dst.add(13);
+                }
                 FastFieldKind::FloatList => {
-                    if (*val_ptr).ob_type != list_type {
+                    if (*val_ptr).ob_type != ctx.list_type {
                         return ptr::null_mut();
                     }
                     let sz = *(val_ptr.byte_add(16) as *const isize);
@@ -1812,14 +1472,14 @@ impl BFast {
                     if (end as usize).wrapping_sub(dst as usize) < needed {
                         return ptr::null_mut();
                     }
-                    *dst.add(4) = 0x60;
+                    ptr::write_unaligned(dst as *mut u64, id | (0x60u64 << 32));
                     ptr::write_unaligned(dst.add(5) as *mut u32, (list_len as u32).to_le());
                     let items_ptr =
                         *(val_ptr.byte_add(24) as *const *const *mut pyo3::ffi::PyObject);
                     let mut cur = dst.add(9);
                     for j in 0..list_len {
                         let elem_ptr = *items_ptr.add(j);
-                        if (*elem_ptr).ob_type != float_type {
+                        if (*elem_ptr).ob_type != ctx.float_type {
                             return ptr::null_mut();
                         }
                         let bits = (*(elem_ptr.byte_add(16) as *const u64)).to_le();
@@ -1830,7 +1490,7 @@ impl BFast {
                     dst = cur;
                 }
                 FastFieldKind::IntList => {
-                    if (*val_ptr).ob_type != list_type {
+                    if (*val_ptr).ob_type != ctx.list_type {
                         return ptr::null_mut();
                     }
                     let sz = *(val_ptr.byte_add(16) as *const isize);
@@ -1842,18 +1502,18 @@ impl BFast {
                     if (end as usize).wrapping_sub(dst as usize) < needed {
                         return ptr::null_mut();
                     }
-                    *dst.add(4) = 0x60;
+                    ptr::write_unaligned(dst as *mut u64, id | (0x60u64 << 32));
                     ptr::write_unaligned(dst.add(5) as *mut u32, (list_len as u32).to_le());
                     let items_ptr =
                         *(val_ptr.byte_add(24) as *const *const *mut pyo3::ffi::PyObject);
                     let mut cur = dst.add(9);
                     for j in 0..list_len {
                         let elem_ptr = *items_ptr.add(j);
-                        if (*elem_ptr).ob_type != long_type {
+                        if (*elem_ptr).ob_type != ctx.long_type {
                             return ptr::null_mut();
                         }
                         let tag = *(elem_ptr.byte_add(16) as *const usize);
-                        if tag == long_tag_one {
+                        if tag == ctx.long_tag_one {
                             let d = *(elem_ptr.byte_add(24) as *const u32);
                             if d < 8 {
                                 *cur = 0x30 | (d as u8);
@@ -1863,7 +1523,7 @@ impl BFast {
                                 ptr::write_unaligned(cur.add(1) as *mut u64, (d as u64).to_le());
                                 cur = cur.add(9);
                             }
-                        } else if tag == long_tag_zero {
+                        } else if tag == ctx.long_tag_zero {
                             *cur = 0x30;
                             cur = cur.add(1);
                         } else {
