@@ -207,10 +207,25 @@ from b_fast import FastMCPBFast, bfast_tool
 
 mcp = FastMCPBFast("data-service")
 
+
 @mcp.tool()
 @bfast_tool()
 def query_records(limit: int = 100):
     return [{"id": i, "metric": i * 1.5} for i in range(limit)]
+```
+
+#### 5. Socket Streaming & Native Transport
+Stream framed B-FAST data directly into TCP/UNIX sockets with native OS acceleration on Linux:
+
+```python
+import socket
+from b_fast import BFastSocketStreamer
+
+# Direct socket streaming with native transport (sync or async)
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.connect(("127.0.0.1", 9000))
+    with BFastSocketStreamer(sock, compress=True, native=True) as streamer:
+        streamer.stream([{"id": i, "val": i * 1.5} for i in range(1000)])
 ```
 
 ### Frontend (TypeScript)
