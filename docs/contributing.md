@@ -12,7 +12,7 @@ B-FAST is built on the principle of open knowledge sharing. Every contribution, 
 
 ### Prerequisites
 - **Rust** 1.70+ (for core library)
-- **Python** 3.8+ with `uv` or `pip`
+- **Python** 3.10+ with `uv` or `pip`
 - **Node.js** 18+ (for TypeScript client)
 - **Git** for version control
 

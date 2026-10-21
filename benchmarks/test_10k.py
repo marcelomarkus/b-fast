@@ -45,7 +45,7 @@ def test_10k_performance():
         result = encoder.encode_packed(users, False)
         end = time.perf_counter()
         times.append((end - start) * 1000)
-        print(f"Run {i+1}: {times[-1]:.2f}ms")
+        print(f"Run {i + 1}: {times[-1]:.2f}ms")
 
     avg_time = sum(times) / len(times)
     print(f"\n📊 Average time: {avg_time:.2f}ms")

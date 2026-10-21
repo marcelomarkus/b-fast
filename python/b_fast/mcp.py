@@ -1,5 +1,5 @@
-from collections.abc import AsyncIterable, Iterable, Mapping
-from typing import Any, AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, AsyncIterable, Generator, Iterable, Mapping
+from typing import Any
 
 from .streaming import BFastStreamEncoder
 

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.9.0] - 2026-10-14
+
+### ⚡ Rust Core Performance & PyO3 Bound API
+- **PyO3 0.23 Upgrade**: Upgraded `pyo3` and companion `numpy` crate to version `0.23`.
+- **Bound API Migration**: Fully migrated Rust engine (`BFast`, `BFastParser`, `BFastStreamEncoder`) to use `Bound<'py, T>` smart pointers, eliminating atomic refcount manipulation (`Py_INCREF`/`Py_DECREF`) across all serialization and deserialization loops.
+- **Inlined Traversal**: Enhanced inlining in list, dict, and Pydantic batch encoders.
+- **Direct PyInt Usage**: Replaced deprecated `PyLong` with `PyInt` across primitive types.
+
+### 🌐 Frontend WebAssembly Engine (`client-ts`)
+- **Direct WebAssembly B-FAST Decoding**: Implemented native WASM decoding core (`wasmDecode`) compiled from Rust, enabling direct binary parsing with precomputed string-table resolution.
+- **Parallel Chunk Decompression in WASM**: Added `wasmDecompressParallel` directly in WebAssembly, delivering a 2.3x speedup on large parallel-compressed payloads by eliminating intermediate JavaScript array slicing and buffer concatenation.
+- **Seamless Fast-Path & Fallback**: Native WASM acceleration integrates into `BFastDecoder.decode` with automatic fallback to `BFastParser` for extended types (Date, Uint8Array, Float64Array).
+
+
+## [1.8.0] - 2026-10-14
+
+### 🔄 Python Version Support & Modernization
+- **Python Support**: Dropped end-of-life Python 3.8 and 3.9 support. Minimum supported version is now **Python 3.10+**.
+- **Forward Compatibility**: Added support classifiers and testing baseline for Python 3.10, 3.11, 3.12, 3.13, 3.14, and 3.15.
+- **PyO3 abi3**: Upgraded Rust PyO3 ABI3 stable target feature to `abi3-py310`.
+- **Tooling**: Updated Black and Ruff target versions to `py310`.
+- **Cleaned Dependencies**: Removed redundant environment markers for `python_version >= '3.10'` in optional dependencies.
+
 ## [1.4.0] - 2026-09-21
 
 ### 🚀 Features

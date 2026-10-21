@@ -5,7 +5,7 @@ Provides ultra-fast serialization and deserialization for DataFrames,
 Series, and Tables across orientations (records, columns, split).
 """
 
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from ._b_fast import BFast
 
@@ -94,7 +94,7 @@ def encode_dataframe(
 
 
 def decode_dataframe(
-    data: Union[bytes, bytearray, memoryview],
+    data: bytes | bytearray | memoryview,
     engine: Literal["auto", "polars", "pandas", "arrow"] = "auto",
 ) -> Any:
     """

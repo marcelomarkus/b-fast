@@ -1,6 +1,7 @@
 # Rust
 target/
 Cargo.lock
+wasm_b64.txt
 
 # Python
 __pycache__/
