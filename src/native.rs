@@ -233,6 +233,7 @@ impl Drop for NativePipe {
 }
 
 /// Fallback socket send using standard libc::send.
+#[cfg(unix)]
 fn fallback_socket_send(
     sock_fd: libc::c_int,
     data: &[u8],
@@ -278,7 +279,22 @@ fn fallback_socket_send(
     Ok(sent)
 }
 
+#[cfg(windows)]
+fn fallback_socket_send(sock_fd: i32, data: &[u8], _non_blocking: bool) -> io::Result<usize> {
+    if data.is_empty() {
+        return Ok(0);
+    }
+    use std::io::Write;
+    use std::os::windows::io::FromRawSocket;
+    let raw = sock_fd as u32 as std::os::windows::io::RawSocket;
+    let mut stream = unsafe { std::net::TcpStream::from_raw_socket(raw) };
+    let res = stream.write(data);
+    std::mem::forget(stream);
+    res
+}
+
 /// Zero-copy scatter-gather send of header + payload using native sendmsg(MSG_NOSIGNAL).
+#[cfg(unix)]
 #[inline]
 fn send_iovec_pair(
     sock_fd: libc::c_int,
@@ -292,11 +308,14 @@ fn send_iovec_pair(
         return Ok(0);
     }
 
+    #[cfg(target_os = "linux")]
     let flags = if non_blocking {
         libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL
     } else {
         libc::MSG_NOSIGNAL
     };
+    #[cfg(not(target_os = "linux"))]
+    let flags = 0;
 
     let mut iov = [
         libc::iovec {
@@ -357,6 +376,22 @@ fn send_iovec_pair(
         }
     }
     Ok(total_sent)
+}
+
+#[cfg(windows)]
+#[inline]
+fn send_iovec_pair(
+    sock_fd: i32,
+    iov0: &[u8],
+    iov1: &[u8],
+    non_blocking: bool,
+) -> io::Result<usize> {
+    let n0 = fallback_socket_send(sock_fd, iov0, non_blocking)?;
+    if n0 < iov0.len() {
+        return Ok(n0);
+    }
+    let n1 = fallback_socket_send(sock_fd, iov1, non_blocking)?;
+    Ok(n0 + n1)
 }
 
 fn io_error_to_py_err(err: io::Error) -> PyErr {
@@ -460,6 +495,7 @@ impl BFastNativeSender {
     /// Number of bytes currently buffered waiting to be transmitted.
     #[getter]
     pub fn pending_bytes(&self) -> usize {
+        #[allow(unused_mut)]
         let mut n = self.buffer.len();
         #[cfg(target_os = "linux")]
         {
