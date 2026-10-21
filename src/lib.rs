@@ -275,7 +275,7 @@ impl BFast {
             } else {
                 self.work_buffer.as_ptr()
             };
-            Self::copy_bytes_no_erms(dst.add(6), src_ptr, slice_len);
+            ptr::copy_nonoverlapping(src_ptr, dst.add(6), slice_len);
             Ok(PyObject::from_owned_ptr(py, ptr))
         }
     }
@@ -608,85 +608,15 @@ impl BFast {
 
     #[inline(always)]
     fn create_pybytes_fast(py: Python<'_>, slice: &[u8]) -> PyResult<PyObject> {
-        let len = slice.len();
         unsafe {
-            let ptr =
-                pyo3::ffi::PyBytes_FromStringAndSize(ptr::null(), len as pyo3::ffi::Py_ssize_t);
+            let ptr = pyo3::ffi::PyBytes_FromStringAndSize(
+                slice.as_ptr() as *const libc::c_char,
+                slice.len() as pyo3::ffi::Py_ssize_t,
+            );
             if ptr.is_null() {
                 return Err(PyErr::fetch(py));
             }
-            let dst = pyo3::ffi::PyBytes_AsString(ptr) as *mut u8;
-            Self::copy_bytes_no_erms(dst, slice.as_ptr(), len);
             Ok(PyObject::from_owned_ptr(py, ptr))
-        }
-    }
-
-    #[inline(always)]
-    unsafe fn copy_bytes_short(dst: *mut u8, src: *const u8, len: usize) {
-        if len <= 16 {
-            if len >= 8 {
-                let a = ptr::read_unaligned(src as *const u64);
-                let b = ptr::read_unaligned(src.add(len - 8) as *const u64);
-                ptr::write_unaligned(dst as *mut u64, a);
-                ptr::write_unaligned(dst.add(len - 8) as *mut u64, b);
-            } else if len >= 4 {
-                let a = ptr::read_unaligned(src as *const u32);
-                let b = ptr::read_unaligned(src.add(len - 4) as *const u32);
-                ptr::write_unaligned(dst as *mut u32, a);
-                ptr::write_unaligned(dst.add(len - 4) as *mut u32, b);
-            } else if len > 0 {
-                *dst = *src;
-                *dst.add(len >> 1) = *src.add(len >> 1);
-                *dst.add(len - 1) = *src.add(len - 1);
-            }
-        } else if len <= 32 {
-            let a0 = ptr::read_unaligned(src as *const u64);
-            let a1 = ptr::read_unaligned(src.add(8) as *const u64);
-            let b0 = ptr::read_unaligned(src.add(len - 16) as *const u64);
-            let b1 = ptr::read_unaligned(src.add(len - 8) as *const u64);
-            ptr::write_unaligned(dst as *mut u64, a0);
-            ptr::write_unaligned(dst.add(8) as *mut u64, a1);
-            ptr::write_unaligned(dst.add(len - 16) as *mut u64, b0);
-            ptr::write_unaligned(dst.add(len - 8) as *mut u64, b1);
-        } else if len <= 64 {
-            let a0 = ptr::read_unaligned(src as *const u64);
-            let a1 = ptr::read_unaligned(src.add(8) as *const u64);
-            let a2 = ptr::read_unaligned(src.add(16) as *const u64);
-            let a3 = ptr::read_unaligned(src.add(24) as *const u64);
-            let b0 = ptr::read_unaligned(src.add(len - 32) as *const u64);
-            let b1 = ptr::read_unaligned(src.add(len - 24) as *const u64);
-            let b2 = ptr::read_unaligned(src.add(len - 16) as *const u64);
-            let b3 = ptr::read_unaligned(src.add(len - 8) as *const u64);
-            ptr::write_unaligned(dst as *mut u64, a0);
-            ptr::write_unaligned(dst.add(8) as *mut u64, a1);
-            ptr::write_unaligned(dst.add(16) as *mut u64, a2);
-            ptr::write_unaligned(dst.add(24) as *mut u64, a3);
-            ptr::write_unaligned(dst.add(len - 32) as *mut u64, b0);
-            ptr::write_unaligned(dst.add(len - 24) as *mut u64, b1);
-            ptr::write_unaligned(dst.add(len - 16) as *mut u64, b2);
-            ptr::write_unaligned(dst.add(len - 8) as *mut u64, b3);
-        } else {
-            Self::copy_bytes_no_erms(dst, src, len);
-        }
-    }
-
-    #[inline(always)]
-    unsafe fn copy_bytes_no_erms(mut dst: *mut u8, mut src: *const u8, mut len: usize) {
-        while len >= 64 {
-            let c0 = ptr::read_unaligned(src as *const u128);
-            let c1 = ptr::read_unaligned(src.add(16) as *const u128);
-            let c2 = ptr::read_unaligned(src.add(32) as *const u128);
-            let c3 = ptr::read_unaligned(src.add(48) as *const u128);
-            ptr::write_unaligned(dst as *mut u128, c0);
-            ptr::write_unaligned(dst.add(16) as *mut u128, c1);
-            ptr::write_unaligned(dst.add(32) as *mut u128, c2);
-            ptr::write_unaligned(dst.add(48) as *mut u128, c3);
-            src = src.add(64);
-            dst = std::hint::black_box(dst.add(64));
-            len -= 64;
-        }
-        if len > 0 {
-            Self::copy_bytes_short(dst, src, len);
         }
     }
 
@@ -955,7 +885,7 @@ impl BFast {
             *base.add(3) = 0x01;
             ptr::write_unaligned(base.add(4) as *mut u16, (self.next_id as u16).to_le());
             if st_len > 0 {
-                Self::copy_bytes_short(base.add(6), self.string_table_bytes.as_ptr(), st_len);
+                ptr::copy_nonoverlapping(self.string_table_bytes.as_ptr(), base.add(6), st_len);
             }
             let list_hdr_ptr = base.add(6 + st_len);
             *list_hdr_ptr = 0x60;
@@ -1263,7 +1193,7 @@ impl BFast {
                 *base.add(3) = 0x01;
                 ptr::write_unaligned(base.add(4) as *mut u16, (self.next_id as u16).to_le());
                 if st_len > 0 {
-                    Self::copy_bytes_short(base.add(6), self.string_table_bytes.as_ptr(), st_len);
+                    ptr::copy_nonoverlapping(self.string_table_bytes.as_ptr(), base.add(6), st_len);
                 }
                 let list_hdr_ptr = base.add(6 + st_len);
                 *list_hdr_ptr = 0x60;
@@ -2012,7 +1942,7 @@ impl BFast {
         }
         unsafe {
             let base = out.as_mut_ptr().add(frame_start);
-            Self::copy_bytes_short(base.add(6), template.prefix.as_ptr(), prefix_len);
+            ptr::copy_nonoverlapping(template.prefix.as_ptr(), base.add(6), prefix_len);
             *base.add(6 + prefix_len) = 0x70;
             out.set_len(frame_start + header_and_prefix);
         }
@@ -2301,7 +2231,7 @@ impl BFast {
                     ptr::write_unaligned(dst as *mut u32, id_u32);
                     *dst.add(4) = 0x50;
                     ptr::write_unaligned(dst.add(5) as *mut u32, (str_len as u32).to_le());
-                    Self::copy_bytes_short(dst.add(9), utf8_ptr, str_len);
+                    ptr::copy_nonoverlapping(utf8_ptr, dst.add(9), str_len);
                     out.set_len(cur_len + needed);
                 }
                 true

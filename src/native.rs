@@ -8,14 +8,7 @@ use crate::BFast;
 /// is supported on this platform (Linux).
 #[pyfunction]
 pub fn is_native_available() -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        true
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        false
-    }
+    cfg!(target_os = "linux")
 }
 
 #[cfg(target_os = "linux")]
@@ -248,25 +241,10 @@ fn fallback_socket_send(
     if data.is_empty() {
         return Ok(0);
     }
-    let flags = if non_blocking {
-        #[cfg(target_os = "linux")]
-        {
-            libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            0
-        }
-    } else {
-        #[cfg(target_os = "linux")]
-        {
-            libc::MSG_NOSIGNAL
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            0
-        }
-    };
+    #[cfg(target_os = "linux")]
+    let flags = libc::MSG_NOSIGNAL | if non_blocking { libc::MSG_DONTWAIT } else { 0 };
+    #[cfg(not(target_os = "linux"))]
+    let flags = 0;
 
     let mut sent = 0;
     while sent < data.len() {
@@ -437,9 +415,6 @@ pub struct BFastNativeSender {
     pipe: Option<NativePipe>,
     b_fast: BFast,
     fallback_mode: bool,
-    in_flight: Vec<Vec<u8>>,
-    #[allow(dead_code)]
-    max_in_flight: usize,
     buffer: Vec<u8>,
     buffer_size: usize,
     cached_template: Option<crate::HomogeneousTemplate>,
@@ -450,6 +425,7 @@ impl BFastNativeSender {
     #[new]
     #[pyo3(signature = (*, max_in_flight = 128, buffer_size = 65536))]
     pub fn new(max_in_flight: usize, buffer_size: usize) -> PyResult<Self> {
+        let _ = max_in_flight;
         #[cfg(target_os = "linux")]
         {
             let pipe = NativePipe::new().ok();
@@ -458,8 +434,6 @@ impl BFastNativeSender {
                 pipe,
                 b_fast: BFast::new(),
                 fallback_mode,
-                in_flight: Vec::with_capacity(max_in_flight),
-                max_in_flight,
                 buffer: Vec::with_capacity(buffer_size + 8192),
                 buffer_size,
                 cached_template: None,
@@ -470,8 +444,6 @@ impl BFastNativeSender {
             Ok(Self {
                 b_fast: BFast::new(),
                 fallback_mode: true,
-                in_flight: Vec::new(),
-                max_in_flight,
                 buffer: Vec::with_capacity(buffer_size + 8192),
                 buffer_size,
                 cached_template: None,
@@ -501,13 +473,11 @@ impl BFastNativeSender {
     /// Number of frames currently retained in flight.
     #[getter]
     pub fn in_flight_count(&self) -> usize {
-        self.in_flight.len()
+        0
     }
 
     /// Clear all in-flight buffers.
-    pub fn clear_in_flight(&mut self) {
-        self.in_flight.clear();
-    }
+    pub fn clear_in_flight(&mut self) {}
 
     /// Send raw bytes to the socket using native kernel acceleration.
     #[pyo3(signature = (sock_fd, data, *, non_blocking = false))]
@@ -907,7 +877,6 @@ impl BFastNativeSender {
             self.pipe = None;
         }
         self.fallback_mode = true;
-        self.in_flight.clear();
         self.buffer.clear();
         self.cached_template = None;
     }
