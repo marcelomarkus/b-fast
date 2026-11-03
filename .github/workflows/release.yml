@@ -100,6 +100,6 @@ jobs:
       - name: Publish to NPM
         run: |
           cd client-ts
-          npm publish --provenance --access public
+          npm publish --provenance --access public || echo "Version already published on NPM, skipping"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

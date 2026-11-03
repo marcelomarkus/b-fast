@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.0] - 2026-10-21
+
+### 🚀 Features & Enhancements
+- **Lazy Deserialization**: Added `BFastLazyView` for on-demand indexed access and payload slicing.
+- **Batch Processing**: Performance improvements for batch serialization of models and dictionary records.
+- **TypeScript Client**: Added `BFastTable` columnar support in `bfast-client`.
+- **Native Transport**: Added socket transport helpers in `b_fast.native`.
+
 ## [1.9.0] - 2026-10-14
 
 ### ⚡ Rust Core Performance & PyO3 Bound API
