@@ -1,4 +1,7 @@
-# ⚡ B-FAST (Binary Fast Adaptive Serialization Transfer)
+<p align="center">
+  <img src="docs/assets/bfast-black.svg#gh-light-mode-only" alt="B-FAST" width="500" />
+  <img src="docs/assets/bfast-white.svg#gh-dark-mode-only" alt="B-FAST" width="500" />
+</p>
 
 <p align="center">
   <a href="https://github.com/marcelomarkus/b-fast/actions/workflows/tests.yml"><img src="https://github.com/marcelomarkus/b-fast/actions/workflows/tests.yml/badge.svg" alt="CI"></a>
