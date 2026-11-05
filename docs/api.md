@@ -248,6 +248,30 @@ decode_mcp_resource(result: Any) -> Any
 npm install bfast-client
 ```
 
+### Transparent Auto-Client (`bfast-client/auto`)
+
+Drop-in fetch acceleration that automatically requests and decodes B-FAST binary payloads:
+
+```typescript
+import 'bfast-client/auto';
+
+// Existing fetch calls now transparently negotiate B-FAST and decode .json()
+const response = await fetch('/api/data');
+const data = await response.json();
+```
+
+##### `installBFastAuto(target?: GlobalScope): void`
+Installs the transparent fetch monkeypatch on `globalThis` (or optional custom scope).
+
+##### `uninstallBFastAuto(): void`
+Restores the original `fetch` implementation.
+
+##### `isBFastAutoInstalled(): boolean`
+Returns `true` if the transparent auto-client is currently active.
+
+##### `onBFastResponse(callback: (detail: BFastResponseEventDetail) => void): () => void`
+Registers a listener for B-FAST response metrics (URL, status, byte size, duration, original length). Returns an unsubscribe function.
+
 ### bfastFetch
 
 ```typescript

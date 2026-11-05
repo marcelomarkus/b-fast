@@ -231,6 +231,30 @@ Decorador para definição de recursos binários B-FAST em servidores FastMCP.
 npm install bfast-client
 ```
 
+### Cliente Automático Transparente (`bfast-client/auto`)
+
+Aceleração transparente de `fetch` que negocia e decodifica cargas binárias B-FAST automaticamente:
+
+```typescript
+import 'bfast-client/auto';
+
+// Chamadas comuns de fetch passam a negociar B-FAST e decodificar .json() de forma transparente
+const resposta = await fetch('/api/dados');
+const dados = await resposta.json();
+```
+
+##### `installBFastAuto(target?: GlobalScope): void`
+Instala a interceptação transparente no escopo `globalThis` (ou em um escopo personalizado).
+
+##### `uninstallBFastAuto(): void`
+Restaura a implementação original de `fetch`.
+
+##### `isBFastAutoInstalled(): boolean`
+Retorna `true` se o cliente automático estiver ativo no momento.
+
+##### `onBFastResponse(callback: (detail: BFastResponseEventDetail) => void): () => void`
+Registra um ouvinte de telemetria e métricas para respostas B-FAST (URL, status, tamanho em bytes, latência de decodificação, tamanho original). Retorna uma função para cancelar a inscrição.
+
 ### bfastFetch
 
 ```typescript

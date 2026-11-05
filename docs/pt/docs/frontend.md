@@ -14,6 +14,63 @@ npm install bfast-client
 
 ---
 
+## 🚀 Aceleração Transparente Zero-Config (`bfast-client/auto`) ⭐
+
+A maneira mais rápida e não-invasiva de adotar o B-FAST em um frontend existente.
+
+Em vez de reescrever suas chamadas de API para usar `bfastFetch`, basta adicionar `import 'bfast-client/auto'` no arquivo de entrada principal do seu projeto (`main.ts`, `index.tsx`, `App.vue`, `_app.tsx`, etc.). **Todas as chamadas nativas de `fetch()` passarão a negociar e decodificar respostas B-FAST de forma 100% transparente**:
+
+```typescript
+// Adicione este import no ponto de entrada da aplicação (ex: main.ts / index.tsx)
+import 'bfast-client/auto';
+
+// Seu código existente permanece 100% inalterado!
+const response = await fetch('/api/usuarios');
+const usuarios = await response.json(); // Decodificado do binário B-FAST automaticamente sob o capô!
+```
+
+### Como Funciona por Baixo dos Panos
+1. **Negociação de Cabeçalhos:** Adiciona automaticamente `application/x-bfast` ao cabeçalho `Accept` das requisições enviadas, preservando outros tipos configurados.
+2. **Interceptação Seletiva:** Apenas intercepta respostas com `content-type: application/x-bfast` ou `application/vnd.bfast`. Endpoints que retornam JSON comum, HTML ou outros formatos continuam totalmente intactos.
+3. **Decodificação Transparente:** Substitui o método `response.json()` para ler o buffer binário via `BFastDecoder.decode()` com aceleração WebAssembly. O resultado é memorizado em cache para chamadas subsequentes.
+4. **Integração com DevTools:** Dispara eventos `bfast:response` na `window` informando a taxa de compressão e a latência de decodificação para a extensão **B-FAST Inspector**.
+
+### Controle Programático & Métricas
+
+Você também pode gerenciar o ciclo de vida da interceptação ou ouvir métricas de tráfego programaticamente:
+
+```typescript
+import { 
+    installBFastAuto, 
+    uninstallBFastAuto, 
+    isBFastAutoInstalled, 
+    onBFastResponse 
+} from 'bfast-client/auto';
+
+// Verificar se a aceleração automática está ativa
+console.log(isBFastAutoInstalled()); // true
+
+// Ouvir métricas de desempenho e compressão
+const unsubscribe = onBFastResponse((metric) => {
+    console.log(`[B-FAST] ${metric.url}: ${metric.contentLength} bytes (decodificado em ${metric.durationMs}ms)`);
+    if (metric.originalLength) {
+        const economia = Math.round((1 - metric.contentLength / metric.originalLength) * 100);
+        console.log(`Economia de tráfego: -${economia}%`);
+    }
+});
+
+// Remover o listener
+unsubscribe();
+
+// Restaurar o fetch original se necessário
+uninstallBFastAuto();
+
+// Reinstalar a qualquer momento
+installBFastAuto();
+```
+
+---
+
 ## ⚡ Início Rápido: `bfastFetch`
 
 A maneira mais rápida e ergonômica de se comunicar com endpoints B-FAST:
