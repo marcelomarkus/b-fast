@@ -422,12 +422,7 @@ impl BFast {
     }
 
     #[pyo3(signature = (bytes, decompress = true))]
-    pub fn decode(
-        &mut self,
-        py: Python,
-        bytes: &[u8],
-        decompress: bool,
-    ) -> PyResult<PyObject> {
+    pub fn decode(&mut self, py: Python, bytes: &[u8], decompress: bool) -> PyResult<PyObject> {
         self.decode_packed(py, bytes, decompress)
     }
 
