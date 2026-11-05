@@ -13,24 +13,31 @@ pip install bfast-py
 ```python
 import b_fast
 
-# Create encoder
-encoder = b_fast.BFast()
-
 # Your data
 data = [{"id": i, "name": f"User {i}"} for i in range(1000)]
 
-# Serialize
-encoded = encoder.encode_packed(data, compress=True)
+# Convenient 1-liner (compression enabled by default)
+encoded = b_fast.encode(data)
 print(f"Size: {len(encoded)} bytes")
 
-# Deserialize
-decoded = encoder.decode_packed(encoded)
+# 1-liner deserialization (auto-decompresses if compressed)
+decoded = b_fast.decode(encoded)
+
+# Or using the BFast class instance
+encoder = b_fast.BFast()
+encoded = encoder.encode_packed(data)  # compress=True by default
+decoded = encoder.decode_packed(encoded)  # decompress=True by default
 ```
 
 ### Compression
+By default, B-FAST automatically applies compression (`compress=True`), reducing payload size by up to 89%.
+
+To disable compression for micro-payloads (< 1KB) or ultra-low CPU latency:
 ```python
-# With compression (recommended for > 1KB)
-compressed_data = encoder.encode_packed(data, compress=True)
+# Uncompressed serialization
+raw_binary = b_fast.encode(data, compress=False)
+# or
+raw_binary = encoder.encode_packed(data, compress=False)
 ```
 
 ### FastAPI Integration ⭐ Recommended

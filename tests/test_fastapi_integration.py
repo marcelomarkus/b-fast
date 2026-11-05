@@ -247,6 +247,8 @@ def test_bfast_middleware_content_negotiation():
     assert r_bfast1.status_code == 200
     assert r_bfast1.headers["content-type"] == "application/x-bfast"
     assert "content-length" in r_bfast1.headers
+    assert "x-bfast-original-length" in r_bfast1.headers
+    assert int(r_bfast1.headers["x-bfast-original-length"]) > 0
     decoded1 = decoder.decode_packed(r_bfast1.content, decompress=True)
     assert decoded1 == [{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]
 

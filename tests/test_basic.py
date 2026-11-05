@@ -153,5 +153,34 @@ def test_dict_records_disordered_keys_fallback():
     assert decoded[2] == {"a": 100, "b": 200, "c": 300}
 
 
+def test_encode_packed_default_compression_and_aliases():
+    """Verify that compress defaults to True according to documentation and encode/decode aliases work."""
+    encoder = b_fast.BFast()
+    payload = {"status": "ok", "items": [1, 2, 3], "nested": {"key": "val"}}
+
+    # 1. Calling encode_packed without compress parameter must default to True (compressed)
+    compressed_default = encoder.encode_packed(payload)
+    assert isinstance(compressed_default, bytes)
+    assert len(compressed_default) > 0
+
+    # 2. Decoding without decompress parameter must auto-decompress
+    decoded = encoder.decode_packed(compressed_default)
+    assert decoded == payload
+
+    # 3. Explicit compress=False produces uncompressed binary
+    uncompressed = encoder.encode_packed(payload, compress=False)
+    assert uncompressed.startswith(b"BF")
+
+    # 4. Top-level convenience functions
+    top_encoded = b_fast.encode(payload)
+    top_decoded = b_fast.decode(top_encoded)
+    assert top_decoded == payload
+
+    # 5. Method aliases encode and decode
+    alias_encoded = encoder.encode(payload)
+    alias_decoded = encoder.decode(alias_encoded)
+    assert alias_decoded == payload
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

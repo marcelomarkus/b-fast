@@ -161,12 +161,12 @@ bf = b_fast.BFast()
 # Sample data
 users = [User(id=i, name=f"User {i}", email=f"user{i}@example.com") for i in range(1000)]
 
-# Serialize
-data = bf.encode_packed(users, compress=True)
+# Serialize (compress=True by default)
+data = b_fast.encode(users)  # or bf.encode_packed(users)
 print(f"Size: {len(data)} bytes")
 
-# Deserialize
-decoded = bf.decode_packed(data)
+# Deserialize (decompress=True by default)
+decoded = b_fast.decode(data)  # or bf.decode_packed(data)
 ```
 
 ### TypeScript

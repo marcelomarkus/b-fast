@@ -237,6 +237,7 @@ impl BFast {
         })
     }
 
+    #[pyo3(signature = (obj, compress = true))]
     pub fn encode_packed(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
         if !compress && unsafe { pyo3::ffi::PyList_CheckExact(obj.as_ptr()) != 0 } {
             let list = unsafe { obj.downcast_unchecked::<PyList>() };
@@ -258,6 +259,11 @@ impl BFast {
             &self.work_buffer
         };
         Self::create_pybytes_fast(obj.py(), slice)
+    }
+
+    #[pyo3(signature = (obj, compress = true))]
+    pub fn encode(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
+        self.encode_packed(obj, compress)
     }
 
     #[pyo3(signature = (obj, *, compress = true))]
@@ -313,7 +319,7 @@ impl BFast {
         .into_any())
     }
 
-    #[pyo3(signature = (bytes, *, decompress = true))]
+    #[pyo3(signature = (bytes, decompress = true))]
     pub fn decode_packed(
         &mut self,
         py: Python,
@@ -415,7 +421,12 @@ impl BFast {
         parser.parse()
     }
 
-    #[pyo3(signature = (bytes, *, decompress = true))]
+    #[pyo3(signature = (bytes, decompress = true))]
+    pub fn decode(&mut self, py: Python, bytes: &[u8], decompress: bool) -> PyResult<PyObject> {
+        self.decode_packed(py, bytes, decompress)
+    }
+
+    #[pyo3(signature = (bytes, decompress = true))]
     pub fn decode_lazy(
         &mut self,
         _py: Python,

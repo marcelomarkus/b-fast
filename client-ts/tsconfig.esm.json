@@ -9,6 +9,7 @@
   },
   "include": [
     "index.ts",
+    "auto.ts",
     "lz4js.d.ts"
   ],
   "exclude": [
