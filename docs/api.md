@@ -44,6 +44,31 @@ Complete reference for all classes, methods, and functions in the B-FAST ecosyst
 
 ## ⚡ Core Module (`b_fast`)
 
+### Module-Level Functions
+
+For convenience, B-FAST exposes top-level functions so you don't need to instantiate `BFast()` manually:
+
+```python
+import b_fast
+
+# 1-liner serialization (compress=True by default)
+binary_data = b_fast.encode(my_data)
+
+# 1-liner deserialization (decompress=True by default)
+result = b_fast.decode(binary_data)
+```
+
+##### `encode(obj: Any, compress: bool = True) -> bytes`
+Serializes any Python object with compression enabled by default.
+
+##### `decode(data: Union[bytes, bytearray, memoryview], decompress: bool = True) -> Any`
+Deserializes B-FAST binary payload back into Python native structures.
+
+##### `decode_lazy(data: bytes, decompress: bool = True) -> BFastLazyView`
+Decodes into a zero-allocation lazy view proxy where attributes/items are traversed on-demand.
+
+---
+
 ### `BFast` (Class)
 
 The primary encoder and decoder engine implemented in Rust with PyO3.
@@ -57,19 +82,24 @@ bf = BFast()
 #### Methods
 
 ##### `encode_packed(obj: Any, compress: bool = True) -> bytes`
+*(Also available via alias `bf.encode(obj, compress=True)`)*
+
 Serializes any Python object (primitives, dicts, lists, Pydantic models, NumPy arrays, Polars/Pandas DataFrames) into the B-FAST packed binary format.
 
 - **Parameters:**
     - `obj`: Object to serialize. Supports Pydantic v2 models, NumPy ndarrays, Polars/Pandas DataFrames and Series, datetime, UUID, Decimal, dicts, lists, and primitives.
-    - `compress` *(bool, default=True)*: Enables LZ4 compression. Payload sizes > 1MB automatically use parallel chunk compression.
+    - `compress` *(bool, default=True)*: Enables LZ4 compression. Payload sizes > 1MB automatically use parallel chunk compression. Pass `compress=False` for uncompressed output.
 - **Returns:** `bytes` containing the packed binary payload.
 - **Raises:** `BFastError` if an unsupported type cannot be serialized.
 
-##### `decode_packed(data: Union[bytes, bytearray, memoryview]) -> Any`
+##### `decode_packed(data: Union[bytes, bytearray, memoryview], decompress: bool = True) -> Any`
+*(Also available via alias `bf.decode(data, decompress=True)`)*
+
 Deserializes a B-FAST binary payload back into Python native structures.
 
 - **Parameters:**
     - `data`: Binary buffer to decode.
+    - `decompress` *(bool, default=True)*: Decompresses LZ4 if payload is compressed. Pass `decompress=False` if payload is raw uncompressed.
 - **Returns:** Native Python object (dict, list, primitive, NumPy array, datetime, etc.).
 - **Raises:** `BFastError` if the payload is malformed or invalid.
 

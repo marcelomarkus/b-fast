@@ -117,6 +117,19 @@ npm install bfast-client
 
 ### Backend (Python)
 
+#### 0. Simple Serialization (1-Liner)
+```python
+import b_fast
+
+# Automatic compression enabled by default
+binary = b_fast.encode({"items": [1, 2, 3], "status": "ok"})
+data = b_fast.decode(binary)
+
+# Or via BFast instance
+bf = b_fast.BFast()
+binary = bf.encode_packed(data)
+```
+
 #### 1. FastAPI Integrations ⭐
 
 B-FAST supports two integration styles for FastAPI:
@@ -232,6 +245,15 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
 ```
 
 ### Frontend (TypeScript)
+
+#### 0. Zero-Code Transparent Acceleration (Drop-in) ⭐
+```typescript
+import 'bfast-client/auto';
+
+// Existing fetch calls automatically negotiate B-FAST and decode transparently!
+const response = await fetch('/users');
+const users = await response.json(); // Transparently!
+```
 
 #### 1. Fetch & TanStack Query (React Query)
 ```typescript
