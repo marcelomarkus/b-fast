@@ -1,6 +1,6 @@
 # B-FAST: Binary Fast Adaptive Serialization Transfer (Guia para IAs)
 
-> Protocolo de serialização binária de ultra-alta performance implementado em Rust com decodificação zero-copy, compressão LZ4, deduplicação de strings e streaming em tempo real. Projetado para APIs em Python (FastAPI, Django Ninja), frontends modernos em TypeScript (React, TanStack Query) e orquestradores de Agentes de IA (Model Context Protocol / FastMCP).
+> Protocolo de serialização binária de ultra-alta performance implementado em Rust com decodificação adaptativa, compressão integrada, deduplicação de strings e streaming em tempo real. Projetado para APIs em Python (FastAPI, Django Ninja), frontends modernos em TypeScript (React, TanStack Query) e orquestradores de Agentes de IA (Model Context Protocol / FastMCP).
 
 ## Início Rápido e Instalação
 
@@ -29,7 +29,7 @@ from b_fast import BFast
 
 bf = BFast()
 
-# Codificação com compressão LZ4 opcional
+# Codificação com compressão opcional
 data = {"usuario": "Alice", "saldo": 1500.50, "tags": ["admin", "dev"]}
 bytes_binarios = bf.encode_packed(data, compress=True)
 
@@ -113,6 +113,16 @@ def consultar_banco(query: str):
 ---
 
 ## Referência da API TypeScript
+
+### 0. Aceleração Transparente Zero-Config (`bfast-client/auto`) ⭐
+```typescript
+// Adicione um único import no ponto de entrada da aplicação (main.ts / index.tsx)
+import 'bfast-client/auto';
+
+// Chamadas nativas de fetch agora negociam B-FAST e decodificam .json() automaticamente
+const res = await fetch('/api/usuarios');
+const usuarios = await res.json(); // Decodifica o binário B-FAST de forma transparente!
+```
 
 ### 1. Requisições de Alto Nível (`bfastFetch`)
 ```typescript

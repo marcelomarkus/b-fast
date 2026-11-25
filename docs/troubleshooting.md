@@ -124,4 +124,4 @@ A: Yes! B-FAST includes native integrations: `BFastRenderer` for Django Ninja an
 A: Use `encoder.decode_packed(binary_data)` to deserialize payloads back into Python native structures.
 
 ### Q: How does compression work?
-A: B-FAST includes built-in LZ4 compression. Pass `compress=True` to significantly reduce network payload sizes without external dependencies.
+A: B-FAST includes built-in adaptive compression. Pass `compress=True` to significantly reduce network payload sizes without external dependencies.

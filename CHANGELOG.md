@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.11.0] - 2026-11-25
+
+### 🚀 Features & Enhancements
+- **Transparent Frontend Auto-Client (`bfast-client/auto`)**: Added zero-config monkey-patching for `fetch` in browsers and Node.js. Automatically attaches `Accept: application/x-bfast, */*` and transparently decodes binary B-FAST payloads via `.json()` while preserving native fallback for standard JSON responses.
+- **Top-Level Python Convenience APIs**: Added `b_fast.encode(data, compress=True)` and `b_fast.decode(data)` top-level functional interfaces for clean and idiomatic serialization without needing to instantiate `BFast` or import internal handlers.
+- **FastAPI Telemetry Header**: Added `x-bfast-original-length` response header in `BFastMiddleware` allowing clients and telemetry tools to compute exact compression ratios and bandwidth savings without re-decoding.
+- **B-FAST Inspector DevTools Integration**: Documented and integrated the official Chrome Web Store DevTools extension (`b-fast-inspector`) for inspecting binary network requests and visualizing wire savings.
+- **Google Protocol Buffers Benchmarking**: Added comprehensive benchmark suite comparing B-FAST against Google Protobuf (`benchmarks/bench_protobuf.py`), highlighting throughput and payload efficiency.
+
+### 🎨 Branding & Documentation
+- **Visual Identity & Vector Branding**: Added official animated vector logos (`bfast-white.svg`, `bfast-black.svg`) with dark/light mode responsive support.
+- **Benchmark Visualization Suite**: Redesigned 6-panel high-resolution benchmark visualization aligned with the official B-FAST brand palette (`#FACC15` / `#F59E0B`).
+- **Compliance**: Added `PRIVACY.md` for Chrome Web Store compliance.
+- **CI / CodSpeed Runner Pin**: Pinned CodSpeed workflow to `ubuntu-24.04` to ensure stable benchmark execution.
+
 ## [1.10.0] - 2026-10-21
 
 ### 🚀 Features & Enhancements

@@ -42,6 +42,26 @@ except (ImportError, AttributeError):
         __version__ = "unknown"
 
 
+def encode(data: object, compress: bool = True) -> bytes:
+    """Encode Python object to B-FAST binary format.
+
+    Args:
+        data: Python object to encode
+        compress: Enable compression (default: True)
+    """
+    return BFast().encode_packed(data, compress=compress)
+
+
+def decode(data: bytes, decompress: bool = True) -> object:
+    """Decode B-FAST binary data to Python object.
+
+    Args:
+        data: B-FAST binary data
+        decompress: Enable decompression (default: True)
+    """
+    return BFast().decode_packed(data, decompress=decompress)
+
+
 def decode_lazy(data: bytes, decompress: bool = True) -> BFastLazyView:
     """Decode B-FAST binary payload into a zero-allocation lazy view.
 
@@ -55,6 +75,8 @@ __all__ = [
     "BFast",
     "BFastError",
     "BFastLazyView",
+    "encode",
+    "decode",
     "decode_lazy",
     "BFastResponse",
     "BFastStreamingResponse",
