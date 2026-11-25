@@ -114,6 +114,16 @@ def consultar_banco(query: str):
 
 ## Referência da API TypeScript
 
+### 0. Aceleração Transparente Zero-Config (`bfast-client/auto`) ⭐
+```typescript
+// Adicione um único import no ponto de entrada da aplicação (main.ts / index.tsx)
+import 'bfast-client/auto';
+
+// Chamadas nativas de fetch agora negociam B-FAST e decodificam .json() automaticamente
+const res = await fetch('/api/usuarios');
+const usuarios = await res.json(); // Decodifica o binário B-FAST de forma transparente!
+```
+
 ### 1. Requisições de Alto Nível (`bfastFetch`)
 ```typescript
 import { bfastFetch } from 'bfast-client';

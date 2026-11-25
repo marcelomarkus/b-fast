@@ -114,6 +114,16 @@ def query_database(query: str):
 
 ## TypeScript API Reference & Patterns
 
+### 0. Transparent Zero-Config Acceleration (`bfast-client/auto`) ⭐
+```typescript
+// Add single import at application entrypoint (main.ts / index.tsx)
+import 'bfast-client/auto';
+
+// Existing fetch calls now transparently negotiate B-FAST and decode .json()
+const res = await fetch('/api/users');
+const users = await res.json(); // Automatically decodes binary B-FAST!
+```
+
 ### 1. High-Level Fetch (`bfastFetch`)
 ```typescript
 import { bfastFetch } from 'bfast-client';
