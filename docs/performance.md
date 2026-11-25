@@ -6,6 +6,10 @@ B-FAST (Binary Fast Adaptive Serialization Transfer) is a binary serialization p
 
 ## 🎯 Performance Summary
 
+<p align="center">
+  <img src="assets/benchmark_chart.png" alt="B-FAST Performance Benchmarks" width="900">
+</p>
+
 ### ⚡ Sub-Microsecond Realm (100 Objects)
 - **Encode (100 objects)**: **676 ns** (> 1,470,000 ops/s) — **🚀 2.1x faster**
 - **Decode (100 objects)**: **754 ns** (> 1,320,000 ops/s) — **🚀 2.6x faster**

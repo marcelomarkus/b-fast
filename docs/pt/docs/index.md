@@ -15,13 +15,23 @@
   <a href="https://app.codspeed.io/marcelomarkus/b-fast?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
 </p>
 
-O B-FAST é um protocolo de serialização binária de ultra-alta performance, desenvolvido em Rust para o ecossistema Python e TypeScript. Ele foi projetado para substituir o JSON em rotas críticas onde latência, uso de CPU e largura de banda são gargalos.
+<h3 align="center">O protocolo binário de alta performance para Python e TypeScript moderno.</h3>
+<p align="center">
+  <strong>Mais rápido que orjson. Mais simples que Protobuf. Inspecionável no seu DevTools.</strong>
+</p>
 
-> "Performance não é apenas sobre velocidade—é sobre eficiência onde mais importa"
+O B-FAST é um protocolo de serialização binária de ultra-alta performance desenvolvido para substituir o JSON e formatos binários legados em rotas críticas. Oferece latência sub-microssegundo, integração nativa com Pydantic e streaming com zero boilerplate de schemas.
 
-O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais do que apenas serialização rápida—elas precisam de **serialização inteligente** que se adapta às restrições do mundo real. Após extensa otimização, o B-FAST encontrou seu nicho perfeito em ambientes com restrição de largura de banda, alcançando **1.7x mais rápido** que orjson para objetos simples e **5.7x mais rápido** em redes lentas.
+### ⚡ Visão Geral: O Paradigma Binário Moderno
 
-**Filosofia:** Acreditamos que o futuro da transferência de dados não está apenas na velocidade bruta da CPU, mas em protocolos inteligentes que minimizam o overhead de rede mantendo excelente performance. O B-FAST representa nossa contribuição para uma web mais eficiente e consciente da largura de banda.
+| Capacidade | JSON / orjson | Protocol Buffers (gRPC) | ⚡ **B-FAST** |
+|:---|:---:|:---:|:---:|
+| **Formato no Fio** | Texto (Pesado) | Binário Compacto | **Binário + Compressão Adaptativa** |
+| **Exige Schemas / Compilação?** | ❌ Não | ⚠️ Arquivos `.proto` obrigatórios | **❌ Não (Plug & Play)** |
+| **Modelos Pydantic & Python** | Lento (`model_dump()`) | Mapeamento manual | **⚡ Acesso Direto de Memória** |
+| **Depuração no Navegador** | ✅ Texto legível nativo | ❌ Binário ilegível no DevTools | **⚡ Extensão [B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** |
+| **Throughput de Streaming** | ~22.000 frames/s | Moderado | **🚀 > 3.100.000 frames/s** |
+| **Dados Científicos & NumPy** | Serialização lenta de listas | Bytes manuais opacos | **⚡ Velocidade Nativa de Arrays (14-96x)** |
 
 ## 🚀 Funcionalidades & Arquitetura
 
@@ -78,6 +88,14 @@ O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais 
 </div>
 
 ## 📊 Performance
+
+<p align="center">
+  <img src="assets/benchmark_chart.png" alt="B-FAST Performance Benchmarks" width="900">
+</p>
+
+<p align="center">
+  <em>Benchmarks empíricos completos: o B-FAST entrega encode 1.9x mais rápido e decode 4.6x mais rápido que o Protobuf em Python real, serialização 4.1x mais rápida que o orjson e mais de 3.18M frames/s em streaming sustentado.</em>
+</p>
 
 ### 🚀 Objetos Simples (10.000)
 | Formato | Tempo (ms) | Speedup |

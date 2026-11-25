@@ -4,6 +4,10 @@ Análise detalhada da performance do B-FAST e comparações com outras soluçõe
 
 ## 🚀 Resultados de Benchmark
 
+<p align="center">
+  <img src="assets/benchmark_chart.png" alt="B-FAST Performance Benchmarks" width="900">
+</p>
+
 ### ⚡ Território Sub-Microssegundo (100 Objetos)
 - **Encode (100 objetos)**: **676 ns** (> 1.470.000 ops/s) — **🚀 2.1x mais rápido**
 - **Decode (100 objetos)**: **754 ns** (> 1.320.000 ops/s) — **🚀 2.6x mais rápido**
