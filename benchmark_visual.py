@@ -326,13 +326,13 @@ def generate_chart():
         else:
             ax6.text(w + 120, b.get_y() + b.get_height() / 2, txt, va="center", fontsize=9.5, color="#94A3B8")
 
-    # Save to benchmark_chart.png and docs/assets/benchmark_chart.png
+    # Save to benchmark_chart.png and doc asset directories
     out_file = "benchmark_chart.png"
     plt.savefig(out_file, dpi=180, facecolor=fig.get_facecolor(), edgecolor="none")
-    docs_asset_path = "docs/assets/benchmark_chart.png"
-    if os.path.exists("docs/assets"):
-        import shutil
-        shutil.copyfile(out_file, docs_asset_path)
+    import shutil
+    for dest_dir in ["docs/assets", "docs/pt/docs/assets"]:
+        if os.path.exists(dest_dir):
+            shutil.copyfile(out_file, os.path.join(dest_dir, "benchmark_chart.png"))
 
     print("✅ benchmark_chart.png successfully generated with B-FAST brand colors!")
 
