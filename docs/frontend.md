@@ -2,7 +2,7 @@
 
 The [`bfast-client`](https://www.npmjs.com/package/bfast-client) package is the ultra-fast binary serialization, streaming, and decoding library for JavaScript and TypeScript.
 
-It supports **Dual-Module (ESM & CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno**, and **Cloudflare Workers** with **automatic, zero-config LZ4 compression**.
+It supports **Dual-Module (ESM & CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno**, and **Cloudflare Workers** with **automatic, zero-config adaptive compression**.
 
 ---
 
@@ -35,7 +35,7 @@ console.log(users[0].name);
 const created = await bfastFetch<User>('/api/users', {
     method: 'POST',
     body: { name: 'Alice', role: 'admin' },
-    compress: true, // optional LZ4 compression
+    compress: true, // optional compression
 });
 ```
 
@@ -61,7 +61,7 @@ const payload = {
 // Generates pure B-FAST Uint8Array binary
 const bytes = BFastEncoder.encode(payload);
 
-// With LZ4 compression enabled
+// With compression enabled
 const compressedBytes = BFastEncoder.encode(payload, { compress: true });
 ```
 

@@ -4,7 +4,7 @@
 
 Standard MCP transmits tool results as JSON-RPC over STDIO, SSE, or HTTP. When tools return large datasets (dataframes, database queries, sensor logs, embeddings, or NumPy arrays), JSON-RPC causes severe latency, CPU overhead, and token inflation.
 
-With B-FAST, tool outputs are serialized **up to 15x faster**, **up to 80% smaller** with LZ4, and wrapped cleanly into native MCP `EmbeddedResource` (`BlobResourceContents`).
+With B-FAST, tool outputs are serialized **up to 15x faster**, **up to 80% smaller** with built-in compression, and wrapped cleanly into native MCP `EmbeddedResource` (`BlobResourceContents`).
 
 ---
 
@@ -60,7 +60,7 @@ async def get_users(role: str) -> list:
 
 #### What the MCP Agent Receives:
 The tool returns:
-1. `TextContent`: An informational summary for the LLM (e.g. `[B-FAST binary payload (1000 items): 4200 bytes (compressed with LZ4) available in embedded resource 'bfast://...']`).
+1. `TextContent`: An informational summary for the LLM (e.g. `[B-FAST binary payload (1000 items): 4200 bytes (compressed) available in embedded resource 'bfast://...']`).
 2. `EmbeddedResource`: A `BlobResourceContents` object with `mime_type="application/x-bfast"` containing the base64-encoded compressed binary bytes.
 
 ---
@@ -115,7 +115,7 @@ import { decodeMcpResource } from 'bfast-client';
 // Pass the CallToolResult directly from your MCP client
 const result = await mcpClient.callTool({ name: 'query_sensor_metrics', arguments: { sensor_id: 'S-1' } });
 
-// Decodes the embedded B-FAST resource automatically (with WebAssembly LZ4 acceleration)
+// Decodes the embedded B-FAST resource automatically (with WebAssembly acceleration)
 const data = decodeMcpResource(result);
 console.log(data.sensor);    // 'S-1'
 console.log(data.readings);  // [20.5, 21.5, ...]

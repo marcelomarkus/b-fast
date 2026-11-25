@@ -4,7 +4,7 @@
 
 Por padrão, o MCP transmite os retornos de ferramentas via JSON-RPC em STDIO, SSE ou HTTP. Quando as ferramentas retornam grandes conjuntos de dados (DataFrames, consultas SQL, logs de telemetria, embeddings vetoriais ou arrays NumPy), o JSON-RPC tradicional causa alta latência, sobrecarga de CPU e inflação de tokens.
 
-Com o B-FAST, os retornos das ferramentas são serializados **até 15x mais rápido**, com tamanho **até 80% menor** com LZ4, e empacotados como recursos nativos `EmbeddedResource` (`BlobResourceContents`) do MCP.
+Com o B-FAST, os retornos das ferramentas são serializados **até 15x mais rápido**, com tamanho **até 80% menor** com compressão integrada, e empacotados como recursos nativos `EmbeddedResource` (`BlobResourceContents`) do MCP.
 
 ---
 
@@ -60,7 +60,7 @@ async def get_users(role: str) -> list:
 
 #### O que o Agente ou Cliente MCP Recebe:
 A ferramenta devolve:
-1. `TextContent`: Um resumo legível para o LLM (ex.: `[B-FAST binary payload (1000 items): 4200 bytes (compressed with LZ4) available in embedded resource 'bfast://...']`).
+1. `TextContent`: Um resumo legível para o LLM (ex.: `[B-FAST binary payload (1000 items): 4200 bytes (compressed) available in embedded resource 'bfast://...']`).
 2. `EmbeddedResource`: Objeto `BlobResourceContents` com `mime_type="application/x-bfast"` contendo os bytes binários compactados codificados em base64.
 
 ---
@@ -115,7 +115,7 @@ import { decodeMcpResource } from 'bfast-client';
 // Passa o CallToolResult retornado pelo cliente MCP
 const result = await mcpClient.callTool({ name: 'query_sensor_metrics', arguments: { sensor_id: 'S-1' } });
 
-// Decodifica o recurso B-FAST automaticamente (com aceleração nativa WebAssembly LZ4)
+// Decodifica o recurso B-FAST automaticamente (com aceleração nativa WebAssembly)
 const data = decodeMcpResource(result);
 console.log(data.sensor);    // 'S-1'
 console.log(data.readings);  // [20.5, 21.5, ...]

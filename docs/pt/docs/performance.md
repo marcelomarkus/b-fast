@@ -138,7 +138,7 @@ A performance do B-FAST escala linearmente com o tamanho dos dados:
 - **Suporte nativo a Pydantic & DataFrames** sem conversões intermediárias
 
 ### Compressão
-- **LZ4 integrado**
+- **Compressão adaptativa integrada**
 - **Descompressão rápida** no lado do cliente
 - **Sem dependências externas** necessárias
 

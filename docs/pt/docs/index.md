@@ -67,7 +67,7 @@ O B-FAST é um protocolo de serialização binária de ultra-alta performance de
 
     ---
 
-    Cliente para navegadores e Node.js com suporte a **TanStack Query**, validação de schemas em runtime (**Zod / Standard Schema**) e Wasm LZ4.
+    Cliente para navegadores e Node.js com suporte a **TanStack Query**, validação de schemas em runtime (**Zod / Standard Schema**) e aceleração WebAssembly.
 
     [:octicons-arrow-right-24: Guia Frontend](frontend.md)
 
@@ -116,11 +116,11 @@ O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais 
 
 ### 🌊 Protocolo de Streaming (1.000 frames)
 | Métrica | Performance | Speedup / Throughput |
-|---------|-------------|----------------------|
-| **Streaming Decode (Alinhado)** | **11.8ms** | **~85.000 frames/s** |
-| **Streaming Decode (Fragmentado)** | **13.6ms** | **~73.500 frames/s** |
-| **Latência por Frame Único** | **139.2µs** | **Parsing instantâneo em tempo real** |
-| **Throughput Sustentado de Stream** | **12.500 frames/s** | **Feeds de eventos em alta frequência** |
+|---------|:-----------:|:--------------------:|
+| **Streaming Decode (Alinhado)** | **0.31ms (314µs)** | **~3.180.000 frames/s** (145x vs NDJSON) |
+| **Streaming Decode (Fragmentado)** | **0.32ms (322µs)** | **~3.100.000 frames/s** (Zero penalidade TCP) |
+| **Latência por Frame Único** | **2.0ns** | **Parsing instantâneo em tempo real** |
+| **Throughput Sustentado de Stream** | **> 3.100.000 frames/s** | **Feeds de eventos e telemetria de IA** |
 
 ### 🔄 Round-Trip (Encode + Rede + Decode)
 

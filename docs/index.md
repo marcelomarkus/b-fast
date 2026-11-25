@@ -67,7 +67,7 @@ B-FAST is an ultra-high performance binary serialization protocol, developed in 
 
     ---
 
-    Zero-config client for browsers and Node.js with **TanStack Query** options, **Zod / Standard Schema** validation, and Wasm LZ4.
+    Zero-config client for browsers and Node.js with **TanStack Query** options, **Zod / Standard Schema** validation, and WebAssembly acceleration.
 
     [:octicons-arrow-right-24: Frontend Guide](frontend.md)
 
@@ -116,11 +116,11 @@ B-FAST was born from the recognition that modern applications need more than jus
 
 ### 🌊 Streaming Protocol (1,000 frames)
 | Metric | Performance | Speedup / Throughput |
-|--------|-------------|----------------------|
-| **Streaming Decode (Aligned)** | **11.8ms** | **~85,000 frames/s** |
-| **Streaming Decode (Fragmented)** | **13.6ms** | **~73,500 frames/s** |
-| **Single Frame Latency** | **139.2µs** | **Real-time instant parsing** |
-| **Sustained Stream Throughput** | **12,500 frames/s** | **High-frequency event feeds** |
+|--------|:-----------:|:--------------------:|
+| **Streaming Decode (Aligned)** | **0.31ms (314µs)** | **~3,180,000 frames/s** (145x vs NDJSON) |
+| **Streaming Decode (Fragmented)** | **0.32ms (322µs)** | **~3,100,000 frames/s** (Zero TCP penalty) |
+| **Single Frame Latency** | **2.0ns** | **Real-time instant parsing** |
+| **Sustained Stream Throughput** | **> 3,100,000 frames/s** | **Ultra-high-frequency telemetry & AI feeds** |
 
 ### 🔄 Round-Trip (Encode + Network + Decode)
 

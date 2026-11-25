@@ -29,7 +29,7 @@ from b_fast import BFast
 
 bf = BFast()
 
-# Encode with optional LZ4 compression
+# Encode with optional compression
 data = {"user": "Alice", "balance": 1500.50, "tags": ["admin", "dev"]}
 binary_bytes = bf.encode_packed(data, compress=True)
 

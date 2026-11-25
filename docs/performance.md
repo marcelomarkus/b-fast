@@ -118,7 +118,7 @@ B-FAST performance scales linearly with data size:
 - **Native Pydantic & DataFrame support** without intermediary conversions
 
 ### Compression
-- **Built-in LZ4** compression
+- **Built-in Adaptive** compression
 - **Fast decompression** for client-side
 - **No external dependencies** required
 

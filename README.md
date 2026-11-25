@@ -213,7 +213,7 @@ class User(BaseModel):
 # 1. Explicit B-FAST binary response
 @app.get("/users", response_class=BFastResponse)
 async def get_users():
-    # Returns binary B-FAST data with automatic LZ4 compression
+    # Returns binary B-FAST data with automatic adaptive compression
     return [User(id=i, name=f"User {i}") for i in range(1000)]
 
 

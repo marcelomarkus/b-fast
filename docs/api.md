@@ -88,7 +88,7 @@ Serializes any Python object (primitives, dicts, lists, Pydantic models, NumPy a
 
 - **Parameters:**
     - `obj`: Object to serialize. Supports Pydantic v2 models, NumPy ndarrays, Polars/Pandas DataFrames and Series, datetime, UUID, Decimal, dicts, lists, and primitives.
-    - `compress` *(bool, default=True)*: Enables LZ4 compression. Payload sizes > 1MB automatically use parallel chunk compression. Pass `compress=False` for uncompressed output.
+    - `compress` *(bool, default=True)*: Enables built-in adaptive compression. Payload sizes > 1MB automatically use parallel chunk compression. Pass `compress=False` for uncompressed output.
 - **Returns:** `bytes` containing the packed binary payload.
 - **Raises:** `BFastError` if an unsupported type cannot be serialized.
 
@@ -99,7 +99,7 @@ Deserializes a B-FAST binary payload back into Python native structures.
 
 - **Parameters:**
     - `data`: Binary buffer to decode.
-    - `decompress` *(bool, default=True)*: Decompresses LZ4 if payload is compressed. Pass `decompress=False` if payload is raw uncompressed.
+    - `decompress` *(bool, default=True)*: Decompresses payload if compressed. Pass `decompress=False` if payload is raw uncompressed.
 - **Returns:** Native Python object (dict, list, primitive, NumPy array, datetime, etc.).
 - **Raises:** `BFastError` if the payload is malformed or invalid.
 
@@ -148,7 +148,7 @@ async def stream():
 - **Content-Type:** `application/x-bfast-stream`
 - **Parameters:**
     - `content`: `Iterable` or `AsyncIterable` yielding Python objects.
-    - `compress` *(bool, default=True)*: Compress individual frames with LZ4.
+    - `compress` *(bool, default=True)*: Compress individual frames.
     - `include_handshake` *(bool, default=True)*: Include streaming handshake frame.
     - `include_eos` *(bool, default=True)*: Include End-Of-Stream frame.
 
@@ -168,7 +168,7 @@ api = NinjaAPI(renderer=BFastRenderer())
 
 - **Media Type:** `application/x-bfast`
 - **Parameters:**
-    - `compress` *(bool, default=True)*: Compress response with LZ4.
+    - `compress` *(bool, default=True)*: Compress response with built-in compression.
 
 #### `BFastHttpResponse` (Django)
 Standard Django `HttpResponse` subclass returning B-FAST binary data.
@@ -193,7 +193,7 @@ encode_dataframe(df: Any, orient: str = "records", compress: bool = True) -> byt
         - `"records"`: List of row dicts (`[ {col: val}, ... ]`). Best for REST APIs and frontends.
         - `"columns"`: Columnar dictionary (`{ col: [vals] }`). Blazing fast, minimal memory.
         - `"split"`: Dictionary with `{'columns': [...], 'data': [[...], ...]}`.
-    - `compress` *(bool, default=True)*: Whether to apply LZ4 compression.
+    - `compress` *(bool, default=True)*: Whether to apply built-in compression.
 - **Returns:** B-FAST binary `bytes`.
 
 ### decode_dataframe
