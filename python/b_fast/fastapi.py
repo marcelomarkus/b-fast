@@ -219,6 +219,15 @@ class BFastMiddleware:
                     if not any(k.lower() == b"content-length" for k, _ in new_headers):
                         new_headers.append((b"content-length", content_length_bytes))
 
+                    # Attach original JSON length for DevTools extension and client metrics
+                    if full_body:
+                        new_headers.append(
+                            (
+                                b"x-bfast-original-length",
+                                str(len(full_body)).encode("latin1"),
+                            )
+                        )
+
                     new_response_start = dict(response_start)
                     new_response_start["headers"] = new_headers
 

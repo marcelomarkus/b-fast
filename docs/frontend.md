@@ -2,7 +2,7 @@
 
 The [`bfast-client`](https://www.npmjs.com/package/bfast-client) package is the ultra-fast binary serialization, streaming, and decoding library for JavaScript and TypeScript.
 
-It supports **Dual-Module (ESM & CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno**, and **Cloudflare Workers** with **automatic, zero-config LZ4 compression**.
+It supports **Dual-Module (ESM & CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno**, and **Cloudflare Workers** with **automatic, zero-config adaptive compression**.
 
 ---
 
@@ -10,6 +10,63 @@ It supports **Dual-Module (ESM & CommonJS)**, **Browsers**, **Node.js**, **Bun**
 
 ```bash
 npm install bfast-client
+```
+
+---
+
+## 🚀 Drop-in Transparent Acceleration (`bfast-client/auto`) ⭐
+
+The fastest and most non-invasive way to adopt B-FAST across an existing frontend application.
+
+Instead of rewriting your API calls to use `bfastFetch`, simply add `import 'bfast-client/auto'` at the root entry point of your project (`main.ts`, `index.tsx`, `App.vue`, `_app.tsx`, etc.). **All standard native `fetch()` calls will automatically negotiate and decode B-FAST payloads transparently**:
+
+```typescript
+// Add this single import at your application entrypoint (e.g. main.ts / index.tsx)
+import 'bfast-client/auto';
+
+// Existing code remains 100% unchanged!
+const response = await fetch('/api/users');
+const users = await response.json(); // Automatically & transparently decoded from B-FAST binary!
+```
+
+### How It Works Under the Hood
+1. **Header Negotiation:** Automatically appends `application/x-bfast` to outgoing HTTP `Accept` headers without overriding existing custom headers.
+2. **Selective Interception:** Only intercepts responses returning `content-type: application/x-bfast` or `application/vnd.bfast`. Regular JSON endpoints, images, HTML, and other assets are left completely untouched.
+3. **Transparent Decoding:** Replaces `response.json()` to parse the binary buffer through `BFastDecoder.decode()` with WebAssembly acceleration. Parsed results are cached so repeated calls return the same reference.
+4. **DevTools & Telemetry Integration:** Emits `bfast:response` browser events containing bandwidth savings metrics and payload timing for the **B-FAST Inspector DevTools Extension**.
+
+### Programmatic Control & Metrics
+
+You can also control the lifecycle or listen for response telemetry metrics programmatically:
+
+```typescript
+import { 
+    installBFastAuto, 
+    uninstallBFastAuto, 
+    isBFastAutoInstalled, 
+    onBFastResponse 
+} from 'bfast-client/auto';
+
+// Check if transparent fetch interception is active
+console.log(isBFastAutoInstalled()); // true
+
+// Listen to performance & compression metrics
+const unsubscribe = onBFastResponse((metric) => {
+    console.log(`[B-FAST] ${metric.url}: ${metric.contentLength} bytes (decoded in ${metric.durationMs}ms)`);
+    if (metric.originalLength) {
+        const savings = Math.round((1 - metric.contentLength / metric.originalLength) * 100);
+        console.log(`Bandwidth savings: -${savings}%`);
+    }
+});
+
+// Remove listener when needed
+unsubscribe();
+
+// Temporarily restore original fetch implementation
+uninstallBFastAuto();
+
+// Re-install anytime
+installBFastAuto();
 ```
 
 ---
@@ -35,7 +92,7 @@ console.log(users[0].name);
 const created = await bfastFetch<User>('/api/users', {
     method: 'POST',
     body: { name: 'Alice', role: 'admin' },
-    compress: true, // optional LZ4 compression
+    compress: true, // optional compression
 });
 ```
 
@@ -61,7 +118,7 @@ const payload = {
 // Generates pure B-FAST Uint8Array binary
 const bytes = BFastEncoder.encode(payload);
 
-// With LZ4 compression enabled
+// With compression enabled
 const compressedBytes = BFastEncoder.encode(payload, { compress: true });
 ```
 
@@ -73,7 +130,7 @@ import { BFastDecoder } from 'bfast-client';
 // Decodes ArrayBuffer or Uint8Array
 const data = BFastDecoder.decode<User>(buffer);
 
-// Zero-copy typed array extraction (Float64Array)
+// Direct typed array extraction (Float64Array)
 const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
@@ -81,7 +138,7 @@ const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 
 ## ⚡ Transparent Compression (Zero Config)
 
-`bfast-client` handles LZ4 compression and decompression automatically and transparently with zero setup:
+`bfast-client` handles compression and decompression automatically and transparently with zero setup:
 
 - **Zero Configuration:** No bundler plugins (Vite, Webpack, Next.js), external assets to serve, or native build steps required.
 - **Automatic Detection:** When decoding any compressed payload (`compress: true`), the client detects and decompresses data instantly.
@@ -245,6 +302,21 @@ axios.interceptors.response.use(response => {
     return response;
 });
 ```
+
+---
+
+## 🔍 DevTools Extension: B-FAST Inspector
+
+When debugging in the browser, binary network payloads can normally appear as unreadable binary text in your browser's Network tab. 
+
+The official **[B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** extension brings the same seamless inspection experience you have with JSON:
+
+- **Automatic Interception:** Captures any network response with `Content-Type: application/x-bfast`.
+- **Interactive JSON Tree:** View parsed responses as expandable, color-coded trees.
+- **Timing & Bandwidth Breakdown:** See exact savings and decode latencies in real time.
+- **Proof Card Generator:** Create benchmark snapshots directly from your DevTools panel.
+
+Available on the **[Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** (compatible with Google Chrome, Microsoft Edge, Brave, and Opera).
 
 ---
 

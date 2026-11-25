@@ -44,6 +44,31 @@ Complete reference for all classes, methods, and functions in the B-FAST ecosyst
 
 ## ⚡ Core Module (`b_fast`)
 
+### Module-Level Functions
+
+For convenience, B-FAST exposes top-level functions so you don't need to instantiate `BFast()` manually:
+
+```python
+import b_fast
+
+# 1-liner serialization (compress=True by default)
+binary_data = b_fast.encode(my_data)
+
+# 1-liner deserialization (decompress=True by default)
+result = b_fast.decode(binary_data)
+```
+
+##### `encode(obj: Any, compress: bool = True) -> bytes`
+Serializes any Python object with compression enabled by default.
+
+##### `decode(data: Union[bytes, bytearray, memoryview], decompress: bool = True) -> Any`
+Deserializes B-FAST binary payload back into Python native structures.
+
+##### `decode_lazy(data: bytes, decompress: bool = True) -> BFastLazyView`
+Decodes into a zero-allocation lazy view proxy where attributes/items are traversed on-demand.
+
+---
+
 ### `BFast` (Class)
 
 The primary encoder and decoder engine implemented in Rust with PyO3.
@@ -57,19 +82,24 @@ bf = BFast()
 #### Methods
 
 ##### `encode_packed(obj: Any, compress: bool = True) -> bytes`
+*(Also available via alias `bf.encode(obj, compress=True)`)*
+
 Serializes any Python object (primitives, dicts, lists, Pydantic models, NumPy arrays, Polars/Pandas DataFrames) into the B-FAST packed binary format.
 
 - **Parameters:**
     - `obj`: Object to serialize. Supports Pydantic v2 models, NumPy ndarrays, Polars/Pandas DataFrames and Series, datetime, UUID, Decimal, dicts, lists, and primitives.
-    - `compress` *(bool, default=True)*: Enables LZ4 compression. Payload sizes > 1MB automatically use parallel chunk compression.
+    - `compress` *(bool, default=True)*: Enables built-in adaptive compression. Payload sizes > 1MB automatically use parallel chunk compression. Pass `compress=False` for uncompressed output.
 - **Returns:** `bytes` containing the packed binary payload.
 - **Raises:** `BFastError` if an unsupported type cannot be serialized.
 
-##### `decode_packed(data: Union[bytes, bytearray, memoryview]) -> Any`
+##### `decode_packed(data: Union[bytes, bytearray, memoryview], decompress: bool = True) -> Any`
+*(Also available via alias `bf.decode(data, decompress=True)`)*
+
 Deserializes a B-FAST binary payload back into Python native structures.
 
 - **Parameters:**
     - `data`: Binary buffer to decode.
+    - `decompress` *(bool, default=True)*: Decompresses payload if compressed. Pass `decompress=False` if payload is raw uncompressed.
 - **Returns:** Native Python object (dict, list, primitive, NumPy array, datetime, etc.).
 - **Raises:** `BFastError` if the payload is malformed or invalid.
 
@@ -118,7 +148,7 @@ async def stream():
 - **Content-Type:** `application/x-bfast-stream`
 - **Parameters:**
     - `content`: `Iterable` or `AsyncIterable` yielding Python objects.
-    - `compress` *(bool, default=True)*: Compress individual frames with LZ4.
+    - `compress` *(bool, default=True)*: Compress individual frames.
     - `include_handshake` *(bool, default=True)*: Include streaming handshake frame.
     - `include_eos` *(bool, default=True)*: Include End-Of-Stream frame.
 
@@ -138,7 +168,7 @@ api = NinjaAPI(renderer=BFastRenderer())
 
 - **Media Type:** `application/x-bfast`
 - **Parameters:**
-    - `compress` *(bool, default=True)*: Compress response with LZ4.
+    - `compress` *(bool, default=True)*: Compress response with built-in compression.
 
 #### `BFastHttpResponse` (Django)
 Standard Django `HttpResponse` subclass returning B-FAST binary data.
@@ -163,7 +193,7 @@ encode_dataframe(df: Any, orient: str = "records", compress: bool = True) -> byt
         - `"records"`: List of row dicts (`[ {col: val}, ... ]`). Best for REST APIs and frontends.
         - `"columns"`: Columnar dictionary (`{ col: [vals] }`). Blazing fast, minimal memory.
         - `"split"`: Dictionary with `{'columns': [...], 'data': [[...], ...]}`.
-    - `compress` *(bool, default=True)*: Whether to apply LZ4 compression.
+    - `compress` *(bool, default=True)*: Whether to apply built-in compression.
 - **Returns:** B-FAST binary `bytes`.
 
 ### decode_dataframe
@@ -218,6 +248,30 @@ decode_mcp_resource(result: Any) -> Any
 npm install bfast-client
 ```
 
+### Transparent Auto-Client (`bfast-client/auto`)
+
+Drop-in fetch acceleration that automatically requests and decodes B-FAST binary payloads:
+
+```typescript
+import 'bfast-client/auto';
+
+// Existing fetch calls now transparently negotiate B-FAST and decode .json()
+const response = await fetch('/api/data');
+const data = await response.json();
+```
+
+##### `installBFastAuto(target?: GlobalScope): void`
+Installs the transparent fetch monkeypatch on `globalThis` (or optional custom scope).
+
+##### `uninstallBFastAuto(): void`
+Restores the original `fetch` implementation.
+
+##### `isBFastAutoInstalled(): boolean`
+Returns `true` if the transparent auto-client is currently active.
+
+##### `onBFastResponse(callback: (detail: BFastResponseEventDetail) => void): () => void`
+Registers a listener for B-FAST response metrics (URL, status, byte size, duration, original length). Returns an unsubscribe function.
+
 ### bfastFetch
 
 ```typescript
@@ -254,7 +308,7 @@ Generates infinite query options for pagination and continuous loading with `use
 import { BFastDecoder } from 'bfast-client';
 
 const data = BFastDecoder.decode<User>(buffer, {
-    typedArrays: false, // Set true for zero-copy Float64Array
+    typedArrays: false, // Set true for direct Float64Array views
     schema: UserSchema, // Optional runtime schema validation
 });
 ```

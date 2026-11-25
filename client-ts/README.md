@@ -1,8 +1,13 @@
 # bfast-client
 
+<p align="left">
+  <a href="https://www.npmjs.com/package/bfast-client"><img src="https://img.shields.io/npm/v/bfast-client?color=crimson&logo=npm&logoColor=white" alt="npm version"></a>
+  <a href="https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp"><img src="https://img.shields.io/badge/Chrome%20Web%20Store-B--FAST%20Inspector-blue?logo=googlechrome&logoColor=white" alt="Chrome Web Store"></a>
+</p>
+
 Ultra-fast binary serializer, streaming frame engine, and decoder for the ⚡**B-FAST** format in TypeScript & JavaScript.
 
-Supports **Node.js**, **Browsers**, **Cloudflare Workers**, **Deno**, and **Bun** with **Dual Module (ESM & CJS)** and **transparent zero-config LZ4 compression**.
+Supports **Node.js**, **Browsers**, **Cloudflare Workers**, **Deno**, and **Bun** with **Dual Module (ESM & CJS)** and **transparent zero-config compression**.
 
 ---
 
@@ -35,7 +40,7 @@ console.log(users[0].name);
 const created = await bfastFetch<User>('/api/users', {
     method: 'POST',
     body: { name: 'Alice', role: 'admin' },
-    compress: true, // optional LZ4 compression
+    compress: true, // optional compression
 });
 ```
 
@@ -61,7 +66,7 @@ const payload = {
 // Raw uncompressed B-FAST bytes (Uint8Array)
 const bytes = BFastEncoder.encode(payload);
 
-// Or with LZ4 compression enabled
+// Or with compression enabled
 const compressedBytes = BFastEncoder.encode(payload, { compress: true });
 ```
 
@@ -73,7 +78,7 @@ import { BFastDecoder } from 'bfast-client';
 // Decodes ArrayBuffer or Uint8Array
 const data = BFastDecoder.decode<User>(buffer);
 
-// Zero-copy TypedArrays for numerical arrays (Float64Array, etc.)
+// Direct TypedArrays for numerical arrays (Float64Array, etc.)
 const fastNumeric = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
@@ -81,7 +86,7 @@ const fastNumeric = BFastDecoder.decode(buffer, { typedArrays: true });
 
 ## ⚡ Transparent Compression (Zero-Config)
 
-`bfast-client` handles LZ4 compression and decompression automatically:
+`bfast-client` handles compression and decompression automatically:
 
 - **Zero Configuration:** No bundler plugins (Vite, Webpack, Next.js), separate asset files, or native build steps required.
 - **Automatic Detection:** Any compressed payload (`compress: true`) is detected and unpacked on the fly.
@@ -256,7 +261,7 @@ import { BFastTable } from 'bfast-client';
 
 const table = BFastTable.from(buffer);
 
-// Zero-copy column views
+// Direct column views
 const prices = table.getFloat64Array('price');
 const ids = table.getInt32Array('id');
 const actives = table.getBooleanArray('active');
@@ -300,7 +305,19 @@ console.log(data);
 - **Collections**: `Array`, `Object`, nested structures
 - **Special Types**: `Date`, `UUID`, NumPy typed arrays (`Float64Array`)
 - **String Table**: Automatic string interning for repetitive keys
-- **Compression**: Automatic LZ4 compression & decompression
+- **Compression**: Automatic compression & decompression
+
+---
+
+## 🔍 DevTools Extension: B-FAST Inspector
+
+Debug binary payloads in your browser as easily as JSON. The official **[B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** extension adds a dedicated panel to your browser DevTools:
+
+- Intercepts `application/x-bfast` network responses automatically.
+- Displays interactive, expandable data trees.
+- Live measurements for decode time and bandwidth savings.
+
+Install from the **[Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)**.
 
 ---
 
