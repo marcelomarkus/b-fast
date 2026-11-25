@@ -18,11 +18,14 @@ B-FAST was born from the recognition that modern applications need more than jus
 - **Encode (100 objects)**: **676 ns** (> 1,470,000 ops/s) — **🚀 2.1x faster**
 - **Decode (100 objects)**: **754 ns** (> 1,320,000 ops/s) — **🚀 2.6x faster**
 
-### Simple Objects (10k)
-- **B-FAST**: 2.01ms
-- **orjson**: 8.19ms
-- **JSON**: 12.0ms
-- **🚀 4.1x faster than orjson! (6.0x faster than JSON)**
+### Simple Objects (10,000)
+| Format | Time (ms) | Speedup vs JSON | Speedup vs orjson |
+|--------|:---------:|:---------------:|:-----------------:|
+| JSON (stdlib) | 12.0ms | 1.0x *(Base)* | — |
+| orjson | 8.19ms | 1.5x | 1.0x *(Base)* |
+| **B-FAST** | **2.01ms** | **🚀 6.0x faster** | **⚡ 4.1x faster** |
+
+*B-FAST is **4.1x faster** than Python's fastest JSON library (`orjson`) and **6.0x faster** than standard `json`.*
 
 ### Streaming Protocol Performance (1,000 frames)
 - **Streaming Decode (Aligned)**: **0.31ms (314µs)** (~3,180,000 frames/s)

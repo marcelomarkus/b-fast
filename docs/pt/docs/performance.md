@@ -19,13 +19,13 @@ O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais 
 - **Decode (100 objetos)**: **754 ns** (> 1.320.000 ops/s) — **🚀 2.6x mais rápido**
 
 ### Objetos Simples (10.000)
-| Formato | Tempo (ms) | Speedup |
-|---------|------------|---------|
-| JSON | 12.0ms | 1.0x |
-| orjson | 8.19ms | 1.5x |
-| **B-FAST** | **2.01ms** | **🚀 6.0x** |
+| Formato | Tempo (ms) | Speedup vs JSON | Speedup vs orjson |
+|---------|:----------:|:---------------:|:-----------------:|
+| JSON (stdlib) | 12.0ms | 1.0x *(Base)* | — |
+| orjson | 8.19ms | 1.5x | 1.0x *(Base)* |
+| **B-FAST** | **2.01ms** | **🚀 6.0x mais rápido** | **⚡ 4.1x mais rápido** |
 
-**B-FAST é 4.1x mais rápido que orjson!**
+*O B-FAST é **4.1x mais rápido** que o `orjson` e **6.0x mais rápido** que o `json` padrão.*
 
 ### 🌊 Protocolo de Streaming (1.000 frames)
 | Métrica | Performance | Speedup / Throughput |
