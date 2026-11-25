@@ -2,7 +2,7 @@
 
 O pacote [`bfast-client`](https://www.npmjs.com/package/bfast-client) é a biblioteca ultra-rápida de serialização, streaming e decodificação binária para JavaScript e TypeScript.
 
-Suporta **Dual-Module (ESM e CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno** e **Cloudflare Workers** com **compressão LZ4 transparente e zero-config**.
+Suporta **Dual-Module (ESM e CommonJS)**, **Browsers**, **Node.js**, **Bun**, **Deno** e **Cloudflare Workers** com **compressão transparente e zero-config**.
 
 ---
 
@@ -92,7 +92,7 @@ console.log(users[0].name);
 const created = await bfastFetch<User>('/api/users', {
     method: 'POST',
     body: { name: 'Alice', role: 'admin' },
-    compress: true, // opcional: compressão LZ4
+    compress: true, // opcional: compressão adaptativa
 });
 ```
 
@@ -118,7 +118,7 @@ const payload = {
 // Gera Uint8Array binário B-FAST puro
 const bytes = BFastEncoder.encode(payload);
 
-// Com compressão LZ4 ativada
+// Com compressão ativada
 const compressedBytes = BFastEncoder.encode(payload, { compress: true });
 ```
 
@@ -130,7 +130,7 @@ import { BFastDecoder } from 'bfast-client';
 // Decodifica ArrayBuffer ou Uint8Array
 const data = BFastDecoder.decode<User>(buffer);
 
-// Extração com arrays tipados (Zero-Copy Float64Array)
+// Extração com arrays tipados (Float64Array)
 const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
@@ -138,7 +138,7 @@ const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 
 ## ⚡ Compressão Transparente (Zero Config)
 
-O `bfast-client` gerencia compressão e descompressão LZ4 de forma totalmente automática, transparente e com zero configuração:
+O `bfast-client` gerencia compressão e descompressão de forma totalmente automática, transparente e com zero configuração:
 
 - **Zero Configuração:** Sem necessidade de plugins de bundler (Vite, Webpack, Next.js), arquivos externos para servir ou dependências nativas.
 - **Detecção Automática:** Ao decodificar qualquer payload gerado com compressão (`compress: true`), o cliente detecta e descomprime os dados instantaneamente.
@@ -302,6 +302,21 @@ axios.interceptors.response.use(response => {
     return response;
 });
 ```
+
+---
+
+## 🔍 Extensão DevTools: B-FAST Inspector
+
+Ao depurar no navegador, payloads binários costumam aparecer como texto bruto ilegível no Network tab do DevTools.
+
+A extensão oficial **[B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** restaura a mesma experiência transparente de depuração do JSON:
+
+- **Interceptação Automática:** Captura qualquer resposta com `Content-Type: application/x-bfast`.
+- **Árvore Interativa:** Explore os dados decodificados em uma árvore visual expansível e colorida.
+- **Métricas em Tempo Real:** Acompanhe a economia de banda e tempo de decode por requisição.
+- **Gerador de Cartão de Performance:** Crie snapshots de benchmark prontos para compartilhamento.
+
+Disponível na **[Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** (compatível com Google Chrome, Microsoft Edge, Brave e Opera).
 
 ---
 

@@ -105,5 +105,5 @@ def query_large_dataset(limit: int = 1000) -> list[dict]:
 - [Integrations Guide](integrations.md) - Django Ninja, Django, Polars, and Pandas
 - [Frontend Integration](frontend.md) - TypeScript client, TanStack Query, and Zod
 - [AI & LLM Guide (`llms.txt`)](ai.md) - OpenCode, Cursor, and Claude Code instructions
-- [Performance & Benchmarks](performance.md) - Technical benchmarks vs orjson and JSON
+- [Performance & Benchmarks](performance.md) - Technical benchmarks vs Protobuf, orjson, and JSON
 - [Troubleshooting](troubleshooting.md) - Common issues and solutions

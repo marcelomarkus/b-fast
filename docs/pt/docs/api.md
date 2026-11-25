@@ -88,7 +88,7 @@ Serializa qualquer objeto Python (primitivos, dicionários, listas, modelos Pyda
 
 - **Parâmetros:**
     - `obj`: Objeto a ser serializado. Suporta modelos Pydantic v2, arrays NumPy, DataFrames e Series Polars/Pandas, datetime, UUID, Decimal, dicionários e listas.
-    - `compress` *(bool, padrão=True)*: Habilita compressão LZ4. Cargas > 1MB utilizam automaticamente compressão em múltiplos chunks paralelos. Passe `compress=False` para saída sem compressão.
+    - `compress` *(bool, padrão=True)*: Habilita compressão integrada adaptativa. Cargas > 1MB utilizam automaticamente compressão em múltiplos chunks paralelos. Passe `compress=False` para saída sem compressão.
 - **Retorno:** `bytes` contendo a carga binária empacotada.
 - **Lança:** `BFastError` caso ocorra falha na serialização.
 
@@ -185,7 +185,7 @@ encode_dataframe(df: Any, orient: str = "records", compress: bool = True) -> byt
         - `"records"`: Lista de dicionários de linha (`[ {col: val}, ... ]`). Ideal para APIs REST e frontends.
         - `"columns"`: Dicionário colunar (`{ col: [vals] }`). Ultra-rápido, sem cópias de memória adicionais.
         - `"split"`: Dicionário com `{'columns': [...], 'data': [[...], ...]}`.
-    - `compress` *(bool, padrão=True)*: Habilita compressão LZ4.
+    - `compress` *(bool, padrão=True)*: Habilita compressão integrada.
 
 ### decode_dataframe
 Reconstrói DataFrames a partir de bytes binários do B-FAST.

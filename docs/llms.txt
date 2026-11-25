@@ -1,6 +1,6 @@
 # B-FAST: Binary Fast Adaptive Serialization Transfer
 
-> Ultra-high-performance binary serialization protocol implemented in Rust with zero-copy decoding, LZ4 compression, string deduplication, and streaming frames. Designed for Python APIs (FastAPI, Django Ninja), modern TypeScript frontends (React, TanStack Query), and AI Agent frameworks (Model Context Protocol / FastMCP).
+> Ultra-high-performance binary serialization protocol implemented in Rust with adaptive decoding, built-in compression, string deduplication, and streaming frames. Designed for Python APIs (FastAPI, Django Ninja), modern TypeScript frontends (React, TanStack Query), and AI Agent frameworks (Model Context Protocol / FastMCP).
 
 ## Quick Start & Installation
 
@@ -29,7 +29,7 @@ from b_fast import BFast
 
 bf = BFast()
 
-# Encode with optional LZ4 compression
+# Encode with optional compression
 data = {"user": "Alice", "balance": 1500.50, "tags": ["admin", "dev"]}
 binary_bytes = bf.encode_packed(data, compress=True)
 
