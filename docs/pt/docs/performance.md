@@ -1,6 +1,12 @@
 # 📊 Performance - Análise Técnica
 
-Análise detalhada da performance do B-FAST e comparações com outras soluções de serialização.
+> *"Performance não é apenas sobre velocidade — é sobre eficiência onde mais importa."*
+
+## Visão Geral
+
+O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais do que apenas serialização rápida — elas precisam de **serialização inteligente** que se adapta às restrições do mundo real. Após extensas otimizações, o B-FAST opera na **escala de sub-microssegundos** (**676 ns** encode / **754 ns** decode para 100 objetos), alcançando **4.1x mais velocidade** que o orjson para objetos, **5.7x mais rápido** em redes lentas e mais de **3.180.000 frames/s** em protocolo de streaming.
+
+> **Filosofia:** Acreditamos que o futuro da transferência de dados não está apenas na velocidade bruta da CPU, mas em protocolos inteligentes que minimizam a sobrecarga de rede mantendo performance de ponta. O B-FAST representa nossa contribuição para uma web mais eficiente e consciente do uso de banda.
 
 ## 🚀 Resultados de Benchmark
 

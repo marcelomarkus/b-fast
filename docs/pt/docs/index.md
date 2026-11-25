@@ -22,6 +22,8 @@
 
 O B-FAST é um protocolo de serialização binária de ultra-alta performance desenvolvido para substituir o JSON e formatos binários legados em rotas críticas. Oferece latência sub-microssegundo, integração nativa com Pydantic e streaming com zero boilerplate de schemas.
 
+> *"Performance não é apenas sobre velocidade — é sobre eficiência onde mais importa."*
+
 ### ⚡ Visão Geral: O Paradigma Binário Moderno
 
 | Capacidade | JSON / orjson | Protocol Buffers (gRPC) | ⚡ **B-FAST** |
@@ -86,6 +88,12 @@ O B-FAST é um protocolo de serialização binária de ultra-alta performance de
     [:octicons-arrow-right-24: Referência da API](api.md)
 
 </div>
+
+## 💡 A Filosofia: Serialização Inteligente
+
+O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais do que apenas serialização rápida — elas precisam de **serialização inteligente** que se adapta às restrições do mundo real. Após extensas otimizações, o B-FAST opera na **escala de sub-microssegundos** (**676 ns** encode / **754 ns** decode para 100 objetos), alcançando **4.1x mais velocidade** que o orjson para objetos, **5.7x mais rápido** em redes lentas e mais de **3.180.000 frames/s** em protocolo de streaming.
+
+> **Filosofia:** Acreditamos que o futuro da transferência de dados não está apenas na velocidade bruta da CPU, mas em protocolos inteligentes que minimizam a sobrecarga de rede mantendo performance de ponta. O B-FAST representa nossa contribuição para uma web mais eficiente e consciente do uso de banda.
 
 ## 📊 Performance
 

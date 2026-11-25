@@ -1,8 +1,12 @@
 # 📊 B-FAST Performance Analysis
 
+> *"Performance is not just about speed — it's about efficiency where it matters most."*
+
 ## Overview
 
-B-FAST (Binary Fast Adaptive Serialization Transfer) is a binary serialization protocol optimized for bandwidth-constrained environments while maintaining excellent CPU performance.
+B-FAST was born from the recognition that modern applications need more than just fast serialization — they need **smart serialization** that adapts to real-world constraints. After extensive optimization, B-FAST operates in the **sub-microsecond realm** (**676 ns** encode / **754 ns** decode for 100 objects), achieving **4.1x faster** than orjson for objects, **5.7x faster** on slow networks, and over **3,180,000 frames/s** in streaming protocol.
+
+> **Philosophy:** We believe that the future of data transfer lies not in raw CPU speed alone, but in intelligent protocols that minimize network overhead while maintaining excellent performance. B-FAST represents our contribution to a more efficient, bandwidth-conscious web.
 
 ## 🎯 Performance Summary
 

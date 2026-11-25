@@ -22,6 +22,8 @@
 
 B-FAST is an ultra-high performance binary serialization protocol, developed in Rust for Python and TypeScript ecosystems. It's designed to replace JSON in critical routes where latency, CPU usage, and bandwidth are bottlenecks.
 
+> *"Performance is not just about speed — it's about efficiency where it matters most."*
+
 ### ⚡ At a Glance: The Modern Binary Paradigm
 
 | Capability | JSON / orjson | Protocol Buffers (gRPC) | ⚡ **B-FAST** |
@@ -86,6 +88,12 @@ B-FAST is an ultra-high performance binary serialization protocol, developed in 
     [:octicons-arrow-right-24: API Reference](api.md)
 
 </div>
+
+## 💡 The Philosophy: Smart Serialization
+
+B-FAST was born from the recognition that modern applications need more than just fast serialization — they need **smart serialization** that adapts to real-world constraints. After extensive optimization, B-FAST operates in the **sub-microsecond realm** (**676 ns** encode / **754 ns** decode for 100 objects), achieving **4.1x faster** than orjson for objects, **5.7x faster** on slow networks, and over **3,180,000 frames/s** in streaming protocol.
+
+> **Philosophy:** We believe that the future of data transfer lies not in raw CPU speed alone, but in intelligent protocols that minimize network overhead while maintaining excellent performance. B-FAST represents our contribution to a more efficient, bandwidth-conscious web.
 
 ## 📊 Performance
 
