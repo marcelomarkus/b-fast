@@ -20,7 +20,7 @@ It serves as the foundation for real-time dashboards, IoT event pipelines, and *
 
     ---
 
-    Zero-copy state machine handles network packet fragmentation without full buffer reallocations.
+    Adaptive state machine handles network packet fragmentation without full buffer reallocations.
 
 -   __🤖 Native MCP Support__
 

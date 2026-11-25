@@ -44,6 +44,31 @@ Referência técnica completa para todas as classes, métodos e funções do eco
 
 ## ⚡ Módulo Principal (`b_fast`)
 
+### Funções no Nível do Módulo
+
+Para maior comodidade e ergonomia, o B-FAST expõe funções de topo de nível, eliminando a necessidade de instanciar `BFast()` manualmente:
+
+```python
+import b_fast
+
+# 1-liner de serialização (compress=True por padrão)
+binary_data = b_fast.encode(meus_dados)
+
+# 1-liner de desserialização (decompress=True por padrão)
+resultado = b_fast.decode(binary_data)
+```
+
+##### `encode(obj: Any, compress: bool = True) -> bytes`
+Serializa qualquer objeto Python com compressão ativa por padrão.
+
+##### `decode(data: Union[bytes, bytearray, memoryview], decompress: bool = True) -> Any`
+Desserializa a carga binária B-FAST de volta para estruturas nativas do Python.
+
+##### `decode_lazy(data: bytes, decompress: bool = True) -> BFastLazyView`
+Decodifica para uma visualização preguiçosa (lazy proxy) com zero alocação de heap.
+
+---
+
 ### Classe `BFast`
 
 O motor primário de serialização e decodificação implementado em Rust com PyO3.
@@ -57,19 +82,24 @@ bf = BFast()
 #### Métodos
 
 ##### `encode_packed(obj: Any, compress: bool = True) -> bytes`
+*(Também disponível pelo alias `bf.encode(obj, compress=True)`)*
+
 Serializa qualquer objeto Python (primitivos, dicionários, listas, modelos Pydantic, arrays NumPy, DataFrames Polars e Pandas) no formato binário B-FAST empacotado.
 
 - **Parâmetros:**
     - `obj`: Objeto a ser serializado. Suporta modelos Pydantic v2, arrays NumPy, DataFrames e Series Polars/Pandas, datetime, UUID, Decimal, dicionários e listas.
-    - `compress` *(bool, padrão=True)*: Habilita compressão LZ4. Cargas > 1MB utilizam automaticamente compressão em múltiplos chunks paralelos.
+    - `compress` *(bool, padrão=True)*: Habilita compressão integrada adaptativa. Cargas > 1MB utilizam automaticamente compressão em múltiplos chunks paralelos. Passe `compress=False` para saída sem compressão.
 - **Retorno:** `bytes` contendo a carga binária empacotada.
 - **Lança:** `BFastError` caso ocorra falha na serialização.
 
-##### `decode_packed(data: Union[bytes, bytearray, memoryview]) -> Any`
+##### `decode_packed(data: Union[bytes, bytearray, memoryview], decompress: bool = True) -> Any`
+*(Também disponível pelo alias `bf.decode(data, decompress=True)`)*
+
 Desserializa uma carga binária B-FAST de volta para estruturas nativas do Python.
 
 - **Parâmetros:**
     - `data`: Buffer binário a ser decodificado.
+    - `decompress` *(bool, padrão=True)*: Descomprime automaticamente se o payload estiver comprimido. Passe `decompress=False` se o payload for binário puro sem compressão.
 - **Retorno:** Objeto nativo do Python (dict, list, primitivo, array NumPy, datetime, etc.).
 - **Lança:** `BFastError` se a carga estiver malformada.
 
@@ -155,7 +185,7 @@ encode_dataframe(df: Any, orient: str = "records", compress: bool = True) -> byt
         - `"records"`: Lista de dicionários de linha (`[ {col: val}, ... ]`). Ideal para APIs REST e frontends.
         - `"columns"`: Dicionário colunar (`{ col: [vals] }`). Ultra-rápido, sem cópias de memória adicionais.
         - `"split"`: Dicionário com `{'columns': [...], 'data': [[...], ...]}`.
-    - `compress` *(bool, padrão=True)*: Habilita compressão LZ4.
+    - `compress` *(bool, padrão=True)*: Habilita compressão integrada.
 
 ### decode_dataframe
 Reconstrói DataFrames a partir de bytes binários do B-FAST.
@@ -200,6 +230,30 @@ Decorador para definição de recursos binários B-FAST em servidores FastMCP.
 ```bash
 npm install bfast-client
 ```
+
+### Cliente Automático Transparente (`bfast-client/auto`)
+
+Aceleração transparente de `fetch` que negocia e decodifica cargas binárias B-FAST automaticamente:
+
+```typescript
+import 'bfast-client/auto';
+
+// Chamadas comuns de fetch passam a negociar B-FAST e decodificar .json() de forma transparente
+const resposta = await fetch('/api/dados');
+const dados = await resposta.json();
+```
+
+##### `installBFastAuto(target?: GlobalScope): void`
+Instala a interceptação transparente no escopo `globalThis` (ou em um escopo personalizado).
+
+##### `uninstallBFastAuto(): void`
+Restaura a implementação original de `fetch`.
+
+##### `isBFastAutoInstalled(): boolean`
+Retorna `true` se o cliente automático estiver ativo no momento.
+
+##### `onBFastResponse(callback: (detail: BFastResponseEventDetail) => void): () => void`
+Registra um ouvinte de telemetria e métricas para respostas B-FAST (URL, status, tamanho em bytes, latência de decodificação, tamanho original). Retorna uma função para cancelar a inscrição.
 
 ### bfastFetch
 

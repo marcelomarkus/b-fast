@@ -20,7 +20,7 @@ Ele serve como base para dashboards em tempo real, pipelines de telemetria IoT e
 
     ---
 
-    Máquina de estados *zero-copy* que gerencia a fragmentação de pacotes de rede sem realocações excessivas de memória.
+    Máquina de estados adaptativa que gerencia a fragmentação de pacotes de rede sem realocações excessivas de memória.
 
 -   __🤖 Suporte Nativo ao MCP__
 
