@@ -7,32 +7,33 @@ class BFast:
         """Initialize B-FAST encoder with empty string table."""
         ...
 
-    def encode(self, data: Any) -> bytes:
+    def encode(self, data: Any, compress: bool = True) -> bytes:
         """
-        Encode data to B-FAST binary format without compression.
+        Encode data to B-FAST binary format with optional LZ4 compression.
 
         Args:
             data: Any serializable Python object
+            compress: Enable compression (default: True)
 
         Returns:
             Binary data in B-FAST format
         """
         ...
 
-    def encode_packed(self, data: Any, *, compress: bool = False) -> bytes:
+    def encode_packed(self, data: Any, compress: bool = True) -> bytes:
         """
         Encode data to B-FAST binary format with optional LZ4 compression.
 
         Args:
             data: Any serializable Python object
-            compress: Enable LZ4 compression for large payloads
+            compress: Enable LZ4 compression for large payloads (default: True)
 
         Returns:
             Binary data in B-FAST format (optionally compressed)
         """
         ...
 
-    def decode_packed(self, bytes: bytes, *, decompress: bool = True) -> Any:
+    def decode(self, bytes: bytes, decompress: bool = True) -> Any:
         """
         Decode B-FAST binary data to Python objects.
 
@@ -45,7 +46,20 @@ class BFast:
         """
         ...
 
-    def decode_lazy(self, bytes: bytes, *, decompress: bool = True) -> BFastLazyView:
+    def decode_packed(self, bytes: bytes, decompress: bool = True) -> Any:
+        """
+        Decode B-FAST binary data to Python objects.
+
+        Args:
+            bytes: bytes or bytearray containing B-FAST data (optionally compressed)
+            decompress: Decompress B-FAST data if compressed, otherwise parse directly
+
+        Returns:
+            Decoded Python object
+        """
+        ...
+
+    def decode_lazy(self, bytes: bytes, decompress: bool = True) -> BFastLazyView:
         """
         Lazily parse B-FAST binary payload into a zero-allocation view without eager deserialization.
 

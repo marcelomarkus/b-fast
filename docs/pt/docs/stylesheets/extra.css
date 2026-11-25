@@ -13,3 +13,14 @@
     transform: scale(1.12);
     filter: drop-shadow(0 0 12px rgba(250, 204, 21, 0.8));
 }
+
+/* GitHub Dark/Light mode image tag compatibility in documentation */
+[data-md-color-scheme="slate"] img[src*="#gh-light-mode-only"],
+[data-md-color-scheme="slate"] img[href*="#gh-light-mode-only"] {
+    display: none !important;
+}
+
+[data-md-color-scheme="default"] img[src*="#gh-dark-mode-only"],
+[data-md-color-scheme="default"] img[href*="#gh-dark-mode-only"] {
+    display: none !important;
+}

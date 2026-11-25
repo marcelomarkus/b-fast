@@ -1,4 +1,7 @@
-# ⚡ B-FAST (Binary Fast Adaptive Serialization Transfer)
+<p align="center">
+  <img src="assets/bfast-black.svg#gh-light-mode-only" alt="B-FAST" width="500" />
+  <img src="assets/bfast-white.svg#gh-dark-mode-only" alt="B-FAST" width="500" />
+</p>
 
 <p align="center">
   <a href="https://github.com/marcelomarkus/b-fast/actions/workflows/tests.yml"><img src="https://github.com/marcelomarkus/b-fast/actions/workflows/tests.yml/badge.svg" alt="CI"></a>
@@ -6,18 +9,31 @@
   <a href="https://pypi.org/project/bfast-py/"><img src="https://img.shields.io/pypi/v/bfast-py?color=blue&logo=pypi&logoColor=white" alt="PyPI version"></a>
   <a href="https://pypi.org/project/bfast-py/"><img src="https://img.shields.io/pypi/pyversions/bfast-py?logo=python&logoColor=white" alt="Python versions"></a>
   <a href="https://www.npmjs.com/package/bfast-client"><img src="https://img.shields.io/npm/v/bfast-client?color=crimson&logo=npm&logoColor=white" alt="npm version"></a>
+  <a href="https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp"><img src="https://img.shields.io/badge/Chrome%20Web%20Store-B--FAST%20Inspector-blue?logo=googlechrome&logoColor=white" alt="Chrome Web Store"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://marcelomarkus.github.io/b-fast/performance/"><img src="https://img.shields.io/badge/Speedup-Up%20to%205.7x%20vs%20orjson-brightgreen?logo=speedtest&logoColor=white" alt="Performance"></a>
   <a href="https://app.codspeed.io/marcelomarkus/b-fast?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
 </p>
 
+<h3 align="center">The high-speed binary wire for modern Python & TypeScript.</h3>
+<p align="center">
+  <strong>Faster than orjson. Simpler than Protobuf. Inspectable in your browser.</strong>
+</p>
+
 B-FAST is an ultra-high performance binary serialization protocol, developed in Rust for Python and TypeScript ecosystems. It's designed to replace JSON in critical routes where latency, CPU usage, and bandwidth are bottlenecks.
 
-> "Performance is not just about speed—it's about efficiency where it matters most"
+> *"Performance is not just about speed — it's about efficiency where it matters most."*
 
-B-FAST was born from the recognition that modern applications need more than just fast serialization—they need **smart serialization** that adapts to real-world constraints. After extensive optimization, B-FAST has found its perfect niche in bandwidth-constrained environments, achieving **1.7x faster** than orjson for simple objects and **5.7x faster** on slow networks.
+### ⚡ At a Glance: The Modern Binary Paradigm
 
-**Philosophy:** We believe that the future of data transfer lies not in raw CPU speed alone, but in intelligent protocols that minimize network overhead while maintaining excellent performance. B-FAST represents our contribution to a more efficient, bandwidth-conscious web.
+| Capability | JSON / orjson | Protocol Buffers (gRPC) | ⚡ **B-FAST** |
+|:---|:---:|:---:|:---:|
+| **Wire Format** | Text (Heavy) | Binary Compact | **Binary + Adaptive Compression** |
+| **Schema Overhead** | ❌ None | ⚠️ Strict `.proto` compilation | **❌ None (Plug & Play)** |
+| **Pydantic & Python Models** | Slow (`model_dump()`) | Manual field mapping | **⚡ Native Memory Access** |
+| **Browser DevTools** | ✅ Native readable text | ❌ Raw unreadable binary | **⚡ [B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp) Extension** |
+| **Streaming Throughput** | ~22,000 frames/s | Moderate | **🚀 > 3,100,000 frames/s** |
+| **Scientific & NumPy Data** | Slow array serialization | Manual raw bytes | **⚡ Native Array Speed (14-96x)** |
 
 ## 🚀 Features & Architecture
 
@@ -51,7 +67,7 @@ B-FAST was born from the recognition that modern applications need more than jus
 
     ---
 
-    Zero-config client for browsers and Node.js with **TanStack Query** options, **Zod / Standard Schema** validation, and Wasm LZ4.
+    Zero-config client for browsers and Node.js with **TanStack Query** options, **Zod / Standard Schema** validation, and WebAssembly acceleration.
 
     [:octicons-arrow-right-24: Frontend Guide](frontend.md)
 
@@ -73,24 +89,38 @@ B-FAST was born from the recognition that modern applications need more than jus
 
 </div>
 
+## 💡 The Philosophy: Smart Serialization
+
+B-FAST was born from the recognition that modern applications need more than just fast serialization — they need **smart serialization** that adapts to real-world constraints. After extensive optimization, B-FAST operates in the **sub-microsecond realm** (**676 ns** encode / **754 ns** decode for 100 objects), achieving **4.1x faster** than orjson for objects, **5.7x faster** on slow networks, and over **3,180,000 frames/s** in streaming protocol.
+
+> **Philosophy:** We believe that the future of data transfer lies not in raw CPU speed alone, but in intelligent protocols that minimize network overhead while maintaining excellent performance. B-FAST represents our contribution to a more efficient, bandwidth-conscious web.
+
 ## 📊 Performance
 
-### 🚀 Simple Objects (10,000)
-| Format | Time (ms) | Speedup |
-|--------|-----------|---------|
-| JSON | 12.0ms | 1.0x |
-| orjson | 8.19ms | 1.5x |
-| **B-FAST** | **2.01ms** | **🚀 6.0x** |
+<p align="center">
+  <img src="assets/benchmark_chart.png" alt="B-FAST Performance Benchmarks" width="900">
+</p>
 
-**B-FAST is 4.1x faster than orjson!**
+<p align="center">
+  <em>Comprehensive empirical benchmarks: B-FAST delivers 1.9x faster encode and 4.6x faster decode than Protobuf in real-world Python, 4.1x faster encoding than orjson, and over 3.18M frames/sec sustained streaming throughput.</em>
+</p>
+
+### 🚀 Simple Objects (10,000)
+| Format | Time (ms) | Speedup vs JSON | Speedup vs orjson |
+|--------|:---------:|:---------------:|:-----------------:|
+| JSON (stdlib) | 12.0ms | 1.0x *(Base)* | — |
+| orjson | 8.19ms | 1.5x | 1.0x *(Base)* |
+| **B-FAST** | **2.01ms** | **🚀 6.0x faster** | **⚡ 4.1x faster** |
+
+*B-FAST is **4.1x faster** than Python's fastest JSON library (`orjson`) and **6.0x faster** than standard `json`.*
 
 ### 🌊 Streaming Protocol (1,000 frames)
 | Metric | Performance | Speedup / Throughput |
-|--------|-------------|----------------------|
-| **Streaming Decode (Aligned)** | **11.8ms** | **~85,000 frames/s** |
-| **Streaming Decode (Fragmented)** | **13.6ms** | **~73,500 frames/s** |
-| **Single Frame Latency** | **139.2µs** | **Real-time instant parsing** |
-| **Sustained Stream Throughput** | **12,500 frames/s** | **High-frequency event feeds** |
+|--------|:-----------:|:--------------------:|
+| **Streaming Decode (Aligned)** | **0.31ms (314µs)** | **~3,180,000 frames/s** (145x vs NDJSON) |
+| **Streaming Decode (Fragmented)** | **0.32ms (322µs)** | **~3,100,000 frames/s** (Zero TCP penalty) |
+| **Single Frame Latency** | **2.0ns** | **Real-time instant parsing** |
+| **Sustained Stream Throughput** | **> 3,100,000 frames/s** | **Ultra-high-frequency telemetry & AI feeds** |
 
 ### 🔄 Round-Trip (Encode + Network + Decode)
 
@@ -99,21 +129,40 @@ B-FAST was born from the recognition that modern applications need more than jus
 |--------|------------|-------------------|
 | JSON | 114.5ms | 0.8x |
 | orjson | 91.7ms | 1.0x |
-| **B-FAST + LZ4** | **16.1ms** | **🚀 5.7x** |
+| **B-FAST (Compressed)** | **16.1ms** | **🚀 5.7x** |
 
 #### 📡 1 Gbps (Fast Network)
 | Format | Total Time | Speedup vs orjson |
 |--------|------------|-------------------|
 | JSON | 29.4ms | 0.5x |
 | orjson | 15.3ms | 1.0x |
-| **B-FAST + LZ4** | **7.2ms** | **🚀 2.1x** |
+| **B-FAST (Compressed)** | **7.2ms** | **🚀 2.1x** |
 
 #### 📡 10 Gbps (Ultra-Fast Network)
 | Format | Total Time | Speedup vs orjson |
 |--------|------------|-------------------|
 | JSON | 20.9ms | 0.4x |
 | orjson | 7.7ms | 1.0x |
-| **B-FAST + LZ4** | **6.3ms** | **🚀 1.2x** |
+| **B-FAST (Compressed)** | **6.3ms** | **🚀 1.2x** |
+
+### 🥊 B-FAST vs Protocol Buffers (Protobuf)
+
+Protocol Buffers is widely recognized as an industry standard for binary serialization. However, in modern Python applications (such as FastAPI services, APIs, and data microservices), working with Protobuf introduces significant friction and translation overhead.
+
+In an end-to-end benchmark serializing and deserializing 10,000 structured application objects:
+
+| Feature / Metric | Protocol Buffers | B-FAST | Advantage |
+|------------------|:----------------:|:------:|-----------|
+| **Schema Overhead** | Requires `.proto` files & compilation | **None** (Plug-and-play) | No boilerplate or build step |
+| **Real-World Encode** *(From application models)* | 13.5ms *(Model → Proto → Wire)* | **7.2ms** *(Direct)* | **🚀 1.87x faster** |
+| **Full Decode** *(To native Python dicts/lists)* | 87.1ms *(`MessageToDict`)* | **18.9ms** *(Native)* | **🚀 4.6x faster** |
+| **Compressed Payload** | 374 KB | **410 KB** | Comparable compactness |
+| **DevTools Debugging** | Requires external proxies & schemas | **Official DevTools Extension** | Inspect in browser Network tab |
+
+**Why this matters in practice:**
+- **No Translation Tax:** While Protobuf is fast in pure C++, Python applications spend substantial CPU cycles copying data between application models (like Pydantic or dicts) and generated Protobuf message classes. B-FAST works directly with your existing Python objects.
+- **Immediate Usability:** Protobuf's initial decode only provides access to specialized message wrappers; converting them into standard Python collections takes over 87ms. B-FAST yields full, native Python structures immediately upon decoding.
+- **Ergonomics:** You get compact binary serialization and high throughput without defining `.proto` contracts, maintaining schema versions, or running compiler toolchains.
 
 ## 🎯 Ideal Use Cases
 
@@ -158,12 +207,12 @@ bf = b_fast.BFast()
 # Sample data
 users = [User(id=i, name=f"User {i}", email=f"user{i}@example.com") for i in range(1000)]
 
-# Serialize
-data = bf.encode_packed(users, compress=True)
+# Serialize (compress=True by default)
+data = b_fast.encode(users)  # or bf.encode_packed(users)
 print(f"Size: {len(data)} bytes")
 
-# Deserialize
-decoded = bf.decode_packed(data)
+# Deserialize (decompress=True by default)
+decoded = b_fast.decode(data)  # or bf.decode_packed(data)
 ```
 
 ### TypeScript
@@ -179,6 +228,17 @@ async function loadData() {
     console.log(users);
 }
 ```
+
+### 🔍 DevTools Extension: B-FAST Inspector
+
+Binary protocols no longer mean losing visibility in your browser. With the official **B-FAST Inspector** extension, you get the same inspection experience you enjoy with JSON:
+
+- ⚡ **Auto-Detection:** Automatically intercepts and decodes `application/x-bfast` network traffic in DevTools.
+- 🌳 **Interactive Tree View:** Explore parsed responses as collapsible, color-coded interactive trees.
+- ⏱️ **Metrics & Savings:** Live breakdown of bandwidth reduction and decode latencies.
+- 📸 **Social Proof Cards:** Generates sharable benchmark cards highlighting your speedups.
+
+👉 **Install directly from the [Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)**
 
 ## 🔗 Useful Links
 

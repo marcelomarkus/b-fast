@@ -19,6 +19,7 @@ htmlcov/
 node_modules/
 /client-ts/dist/
 /client-ts/node_modules/
+/devtools-extension/
 npm-debug.log
 *.tsbuildinfo
 

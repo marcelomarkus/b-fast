@@ -15,8 +15,22 @@ pub mod native;
 pub mod streaming;
 use std::sync::Arc;
 
+#[cfg(unix)]
 extern "C" {
     fn _PyObject_GetDictPtr(obj: *mut pyo3::ffi::PyObject) -> *mut *mut pyo3::ffi::PyObject;
+}
+
+#[inline(always)]
+unsafe fn get_dict_ptr(obj: *mut pyo3::ffi::PyObject) -> *mut *mut pyo3::ffi::PyObject {
+    #[cfg(unix)]
+    {
+        _PyObject_GetDictPtr(obj)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = obj;
+        std::ptr::null_mut()
+    }
 }
 
 // Performance tuning constants
@@ -223,6 +237,7 @@ impl BFast {
         })
     }
 
+    #[pyo3(signature = (obj, compress = true))]
     pub fn encode_packed(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
         if !compress && unsafe { pyo3::ffi::PyList_CheckExact(obj.as_ptr()) != 0 } {
             let list = unsafe { obj.downcast_unchecked::<PyList>() };
@@ -244,6 +259,11 @@ impl BFast {
             &self.work_buffer
         };
         Self::create_pybytes_fast(obj.py(), slice)
+    }
+
+    #[pyo3(signature = (obj, compress = true))]
+    pub fn encode(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
+        self.encode_packed(obj, compress)
     }
 
     #[pyo3(signature = (obj, *, compress = true))]
@@ -299,7 +319,7 @@ impl BFast {
         .into_any())
     }
 
-    #[pyo3(signature = (bytes, *, decompress = true))]
+    #[pyo3(signature = (bytes, decompress = true))]
     pub fn decode_packed(
         &mut self,
         py: Python,
@@ -401,7 +421,12 @@ impl BFast {
         parser.parse()
     }
 
-    #[pyo3(signature = (bytes, *, decompress = true))]
+    #[pyo3(signature = (bytes, decompress = true))]
+    pub fn decode(&mut self, py: Python, bytes: &[u8], decompress: bool) -> PyResult<PyObject> {
+        self.decode_packed(py, bytes, decompress)
+    }
+
+    #[pyo3(signature = (bytes, decompress = true))]
     pub fn decode_lazy(
         &mut self,
         _py: Python,
@@ -688,7 +713,7 @@ impl BFast {
         let mut obj_dict_offset: isize = 0;
 
         let (is_pydantic, first_dict_ptr) = unsafe {
-            let dict_ptr_ptr = _PyObject_GetDictPtr(first_ptr);
+            let dict_ptr_ptr = get_dict_ptr(first_ptr);
             if !dict_ptr_ptr.is_null() && !(*dict_ptr_ptr).is_null() {
                 let d = *dict_ptr_ptr;
                 if pyo3::ffi::PyDict_CheckExact(d) != 0 || pyo3::ffi::PyDict_Check(d) != 0 {
@@ -983,7 +1008,7 @@ impl BFast {
         let mut obj_dict_offset: isize = 0;
 
         let (is_pydantic, first_dict_ptr) = unsafe {
-            let dict_ptr_ptr = _PyObject_GetDictPtr(first_ptr);
+            let dict_ptr_ptr = get_dict_ptr(first_ptr);
             if !dict_ptr_ptr.is_null() && !(*dict_ptr_ptr).is_null() {
                 let d = *dict_ptr_ptr;
                 if (*d).ob_type == ptr::addr_of_mut!(pyo3::ffi::PyDict_Type) {
@@ -1485,7 +1510,7 @@ impl BFast {
         let dict_attr_ptr = self.dict_attr.as_ptr();
 
         let (is_pydantic, dict) = {
-            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(first_ptr) };
+            let dict_ptr_ptr = unsafe { get_dict_ptr(first_ptr) };
             if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
                 let bound = unsafe { Bound::from_borrowed_ptr(list.py(), *dict_ptr_ptr) };
                 if let Ok(d) = bound.downcast_into::<PyDict>() {
@@ -1646,7 +1671,7 @@ impl BFast {
             if !fast_d.is_null() {
                 fast_d
             } else {
-                let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(obj_ptr) };
+                let dict_ptr_ptr = unsafe { get_dict_ptr(obj_ptr) };
                 if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
                     unsafe { *dict_ptr_ptr }
                 } else {
@@ -1850,7 +1875,7 @@ impl BFast {
         let dict_attr_ptr = self.dict_attr.as_ptr();
 
         let (is_pydantic, dict) = {
-            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(first_ptr) };
+            let dict_ptr_ptr = unsafe { get_dict_ptr(first_ptr) };
             if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
                 let bound = unsafe { Bound::from_borrowed_ptr(first_item.py(), *dict_ptr_ptr) };
                 if let Ok(d) = bound.downcast_into::<PyDict>() {
@@ -1949,7 +1974,7 @@ impl BFast {
 
         let mut needs_decref = false;
         let dict_ptr = if template.is_pydantic {
-            let dict_ptr_ptr = unsafe { _PyObject_GetDictPtr(item_ptr) };
+            let dict_ptr_ptr = unsafe { get_dict_ptr(item_ptr) };
             if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
                 unsafe { *dict_ptr_ptr }
             } else {
