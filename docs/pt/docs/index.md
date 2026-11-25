@@ -9,6 +9,7 @@
   <a href="https://pypi.org/project/bfast-py/"><img src="https://img.shields.io/pypi/v/bfast-py?color=blue&logo=pypi&logoColor=white" alt="Versão PyPI"></a>
   <a href="https://pypi.org/project/bfast-py/"><img src="https://img.shields.io/pypi/pyversions/bfast-py?logo=python&logoColor=white" alt="Versões Python"></a>
   <a href="https://www.npmjs.com/package/bfast-client"><img src="https://img.shields.io/npm/v/bfast-client?color=crimson&logo=npm&logoColor=white" alt="Versão npm"></a>
+  <a href="https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp"><img src="https://img.shields.io/badge/Chrome%20Web%20Store-B--FAST%20Inspector-blue?logo=googlechrome&logoColor=white" alt="Chrome Web Store"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="Licença: MIT"></a>
   <a href="https://marcelomarkus.github.io/b-fast/pt/performance/"><img src="https://img.shields.io/badge/Speedup-At%C3%A9%205.7x%20vs%20orjson-brightgreen?logo=speedtest&logoColor=white" alt="Performance"></a>
   <a href="https://app.codspeed.io/marcelomarkus/b-fast?utm_source=badge"><img src="https://img.shields.io/endpoint?url=https://codspeed.io/badge.json" alt="CodSpeed"/></a>
@@ -102,21 +103,40 @@ O B-FAST nasceu do reconhecimento de que aplicações modernas precisam de mais 
 |---------|-------------|-------------------|
 | JSON | 114.5ms | 0.8x |
 | orjson | 91.7ms | 1.0x |
-| **B-FAST + LZ4** | **16.1ms** | **🚀 5.7x** |
+| **B-FAST (Comprimido)** | **16.1ms** | **🚀 5.7x** |
 
 #### 📡 1 Gbps (Rede Rápida)
 | Formato | Tempo Total | Speedup vs orjson |
 |---------|-------------|-------------------|
 | JSON | 29.4ms | 0.5x |
 | orjson | 15.3ms | 1.0x |
-| **B-FAST + LZ4** | **7.2ms** | **🚀 2.1x** |
+| **B-FAST (Comprimido)** | **7.2ms** | **🚀 2.1x** |
 
 #### 📡 10 Gbps (Rede Ultra-Rápida)
 | Formato | Tempo Total | Speedup vs orjson |
 |---------|-------------|-------------------|
 | JSON | 20.9ms | 0.4x |
 | orjson | 7.7ms | 1.0x |
-| **B-FAST + LZ4** | **6.3ms** | **🚀 1.2x** |
+| **B-FAST (Comprimido)** | **6.3ms** | **🚀 1.2x** |
+
+### 🥊 B-FAST vs Protocol Buffers (Protobuf)
+
+O Protocol Buffers é amplamente reconhecido como padrão da indústria para serialização binária. Contudo, em aplicações Python modernas (como serviços FastAPI, APIs e microsserviços de dados), o uso de Protobuf introduz fricção e sobrecarga de conversão consideráveis.
+
+Em um benchmark ponta a ponta serializando e deserializando 10.000 objetos estruturados de aplicação:
+
+| Característica / Métrica | Protocol Buffers | B-FAST | Vantagem |
+|--------------------------|:----------------:|:------:|----------|
+| **Necessidade de Esquema** | Exige arquivos `.proto` e compilação | **Nenhum** (Plug-and-play) | Sem boilerplate ou etapa de build |
+| **Encode no Mundo Real** *(A partir de modelos da aplicação)* | 13.5ms *(Model → Proto → Wire)* | **7.2ms** *(Direto)* | **🚀 1.87x mais rápido** |
+| **Decode Completo** *(Para dicionários/listas nativos do Python)* | 87.1ms *(`MessageToDict`)* | **18.9ms** *(Nativo)* | **🚀 4.6x mais rápido** |
+| **Payload Comprimido** | 374 KB | **410 KB** | Compacidade equivalente |
+| **Depuração no DevTools** | Exige proxies externos e schemas | **Extensão Oficial para DevTools** | Inspeção direta no Network tab |
+
+**Por que isso importa na prática:**
+- **Sem Custo de Conversão:** Embora o Protobuf seja rápido em C++ puro, aplicações em Python gastam ciclos significativos copiando dados entre modelos da aplicação (como Pydantic ou dicionários) e as classes de mensagem geradas pelo Protobuf. O B-FAST trabalha diretamente com os seus objetos Python existentes.
+- **Usabilidade Imediata:** O decode inicial do Protobuf entrega apenas wrappers de mensagem especializados; convertê-los para coleções padrão do Python leva mais de 87ms. O B-FAST entrega estruturas nativas do Python prontas para consumo imediatamente após o decode.
+- **Ergonomia:** Você obtém serialização binária compacta e alta taxa de transferência sem precisar manter contratos `.proto`, versionar schemas ou executar ferramentas de compilação.
 
 ## 🎯 Casos de Uso Ideais
 
@@ -182,6 +202,17 @@ async function loadData() {
     console.log(users);
 }
 ```
+
+### 🔍 Extensão DevTools: B-FAST Inspector
+
+Protocolos binários não significam perder visibilidade no navegador. Com a extensão oficial **B-FAST Inspector**, você tem a mesma experiência de inspeção do JSON diretamente no DevTools:
+
+- ⚡ **Interceptação Automática:** Captura e decodifica qualquer resposta `application/x-bfast` no Network tab.
+- 🌳 **Árvore Interativa:** Explore os dados decodificados em uma árvore visual expansível e colorida.
+- ⏱️ **Métricas & Economia:** Visualize economia de banda e latências de decode em tempo real.
+- 📸 **Cartões de Performance:** Gere cartões de benchmark prontos para compartilhamento.
+
+👉 **Instale direto da [Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)**
 
 ## 🔗 Links Úteis
 

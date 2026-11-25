@@ -105,5 +105,5 @@ def consulta_dataset(limite: int = 1000) -> list[dict]:
 - [Guia de Integrações](integrations.md) - Django Ninja, Django, Polars e Pandas
 - [Integração Frontend](frontend.md) - Cliente TypeScript, TanStack Query e Zod
 - [Guia para IAs & LLMs (`llms.txt`)](ai.md) - Instruções para OpenCode, Cursor e Claude Code
-- [Performance & Benchmarks](performance.md) - Benchmarks técnicos vs orjson e JSON
+- [Performance & Benchmarks](performance.md) - Benchmarks técnicos vs Protobuf, orjson e JSON
 - [Solução de Problemas](troubleshooting.md) - Resolução de dúvidas frequentes

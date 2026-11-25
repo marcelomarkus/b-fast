@@ -73,7 +73,7 @@ import { BFastDecoder } from 'bfast-client';
 // Decodes ArrayBuffer or Uint8Array
 const data = BFastDecoder.decode<User>(buffer);
 
-// Zero-copy typed array extraction (Float64Array)
+// Direct typed array extraction (Float64Array)
 const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
@@ -81,7 +81,7 @@ const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 
 ## ⚡ Transparent Compression (Zero Config)
 
-`bfast-client` handles LZ4 compression and decompression automatically and transparently with zero setup:
+`bfast-client` handles compression and decompression automatically and transparently with zero setup:
 
 - **Zero Configuration:** No bundler plugins (Vite, Webpack, Next.js), external assets to serve, or native build steps required.
 - **Automatic Detection:** When decoding any compressed payload (`compress: true`), the client detects and decompresses data instantly.
@@ -245,6 +245,21 @@ axios.interceptors.response.use(response => {
     return response;
 });
 ```
+
+---
+
+## 🔍 DevTools Extension: B-FAST Inspector
+
+When debugging in the browser, binary network payloads can normally appear as unreadable binary text in your browser's Network tab. 
+
+The official **[B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** extension brings the same seamless inspection experience you have with JSON:
+
+- **Automatic Interception:** Captures any network response with `Content-Type: application/x-bfast`.
+- **Interactive JSON Tree:** View parsed responses as expandable, color-coded trees.
+- **Timing & Bandwidth Breakdown:** See exact savings and decode latencies in real time.
+- **Proof Card Generator:** Create benchmark snapshots directly from your DevTools panel.
+
+Available on the **[Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** (compatible with Google Chrome, Microsoft Edge, Brave, and Opera).
 
 ---
 

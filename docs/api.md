@@ -284,7 +284,7 @@ Generates infinite query options for pagination and continuous loading with `use
 import { BFastDecoder } from 'bfast-client';
 
 const data = BFastDecoder.decode<User>(buffer, {
-    typedArrays: false, // Set true for zero-copy Float64Array
+    typedArrays: false, // Set true for direct Float64Array views
     schema: UserSchema, // Optional runtime schema validation
 });
 ```

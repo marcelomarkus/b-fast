@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
 Generate benchmark visualization for B-FAST
-Generates benchmark_chart.png with updated 6-panel performance results including Streaming.
+Generates benchmark_chart.png with balanced 7-panel layout:
+  - Row 1: Simple Objects, NumPy Arrays, Payload Size, Network Round-Trip
+  - Row 2: Streaming Decode Time, Streaming Throughput, B-FAST vs Protobuf (wide)
 """
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def generate_chart():
-    """Generate benchmark_chart.png with 6 panels including Streaming protocol"""
+    """Generate benchmark_chart.png with 7 panels including Streaming and Protobuf"""
     plt.rcParams.update(
         {
             "font.family": "sans-serif",
@@ -21,27 +24,29 @@ def generate_chart():
         }
     )
 
-    fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(
-        2, 3, figsize=(22, 13), facecolor="#FAFAFA"
-    )
+    fig = plt.figure(figsize=(24, 13), facecolor="#FAFAFA")
     fig.suptitle(
-        "B-FAST Performance & Streaming Benchmarks",
+        "B-FAST Performance, Streaming & Protobuf Benchmarks",
         fontsize=24,
         fontweight="bold",
         color="#111827",
         y=0.98,
     )
 
+    gs = fig.add_gridspec(2, 4, hspace=0.32, wspace=0.26)
+
     # Color palette
-    c_bfast_lz4 = "#047857"  # Deep Emerald
+    c_bfast_comp = "#047857"  # Deep Emerald
     c_bfast = "#10B981"  # Emerald
     c_bfast_alt = "#14B8A6"  # Teal
+    c_proto = "#6366F1"  # Indigo
     c_orjson = "#3B82F6"  # Blue
     c_json = "#EF4444"  # Red
 
     # -------------------------------------------------------------------------
     # 1. Simple Objects (10,000) - Encoding Speed
     # -------------------------------------------------------------------------
+    ax1 = fig.add_subplot(gs[0, 0])
     categories1 = ["B-FAST", "orjson", "JSON"]
     times1 = [2.01, 8.19, 12.00]
     colors1 = [c_bfast, c_orjson, c_json]
@@ -62,10 +67,10 @@ def generate_chart():
     )
     ax1.set_title(
         "Simple Objects (10,000) - Encoding Speed",
-        fontsize=13,
+        fontsize=12,
         fontweight="bold",
         color="#111827",
-        pad=12,
+        pad=10,
     )
     ax1.set_ylim(0, max(times1) * 1.35)
 
@@ -89,7 +94,7 @@ def generate_chart():
                 f"{speedup:.1f}x faster\nthan orjson",
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.0,
                 color="#065F46",
                 fontweight="bold",
                 bbox={
@@ -101,8 +106,9 @@ def generate_chart():
             )
 
     # -------------------------------------------------------------------------
-    # 2. NumPy Array (8MB = 1M Float64) - Zero-Copy Speed (Log Scale)
+    # 2. NumPy Array (8MB = 1M Float64) - Speed (Log Scale)
     # -------------------------------------------------------------------------
+    ax2 = fig.add_subplot(gs[0, 1])
     categories2 = ["B-FAST", "orjson", "JSON"]
     times2 = [3.29, 46.34, 318.21]
     colors2 = [c_bfast, c_orjson, c_json]
@@ -126,11 +132,11 @@ def generate_chart():
         color="#374151",
     )
     ax2.set_title(
-        "NumPy Array (8 MB) - Zero-Copy Speed",
-        fontsize=13,
+        "NumPy Array (8 MB) - Speed",
+        fontsize=12,
         fontweight="bold",
         color="#111827",
-        pad=12,
+        pad=10,
     )
     ax2.set_ylim(1, 1000)
 
@@ -154,7 +160,7 @@ def generate_chart():
                 f"{speedup:.0f}x faster\nthan orjson",
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.0,
                 color="#065F46",
                 fontweight="bold",
                 bbox={
@@ -168,9 +174,10 @@ def generate_chart():
     # -------------------------------------------------------------------------
     # 3. Payload Size / Bandwidth (100,000 Objects)
     # -------------------------------------------------------------------------
-    categories3 = ["B-FAST+LZ4", "B-FAST", "orjson", "JSON"]
+    ax3 = fig.add_subplot(gs[0, 2])
+    categories3 = ["B-FAST (Comp)", "B-FAST", "orjson", "JSON"]
     sizes3 = [5.75, 45.11, 55.29, 59.11]
-    colors3 = [c_bfast_lz4, c_bfast, c_orjson, c_json]
+    colors3 = [c_bfast_comp, c_bfast, c_orjson, c_json]
 
     bars3 = ax3.bar(
         categories3,
@@ -191,10 +198,10 @@ def generate_chart():
     )
     ax3.set_title(
         "Payload Size (100,000 Large Objects)",
-        fontsize=13,
+        fontsize=12,
         fontweight="bold",
         color="#111827",
-        pad=12,
+        pad=10,
     )
     ax3.set_ylim(0, max(sizes3) * 1.35)
 
@@ -218,7 +225,7 @@ def generate_chart():
                 f"{savings:.0f}% smaller\nthan orjson",
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.0,
                 color="#065F46",
                 fontweight="bold",
                 bbox={
@@ -232,9 +239,10 @@ def generate_chart():
     # -------------------------------------------------------------------------
     # 4. Large Objects (100k) on 100 Mbps Network (Full Round-Trip)
     # -------------------------------------------------------------------------
-    categories4 = ["B-FAST+LZ4", "orjson", "JSON"]
+    ax4 = fig.add_subplot(gs[0, 3])
+    categories4 = ["B-FAST (Comp)", "orjson", "JSON"]
     times4 = [1457, 4898, 5478]
-    colors4 = [c_bfast_lz4, c_orjson, c_json]
+    colors4 = [c_bfast_comp, c_orjson, c_json]
 
     bars4 = ax4.bar(
         categories4,
@@ -254,11 +262,11 @@ def generate_chart():
         color="#374151",
     )
     ax4.set_title(
-        "Round-Trip 100k Objects - 100 Mbps Network",
-        fontsize=13,
+        "Round-Trip 100k Objects (100 Mbps)",
+        fontsize=12,
         fontweight="bold",
         color="#111827",
-        pad=12,
+        pad=10,
     )
     ax4.set_ylim(0, max(times4) * 1.35)
 
@@ -282,7 +290,7 @@ def generate_chart():
                 f"{speedup:.1f}x faster\nthan orjson",
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.0,
                 color="#065F46",
                 fontweight="bold",
                 bbox={
@@ -296,6 +304,7 @@ def generate_chart():
     # -------------------------------------------------------------------------
     # 5. Streaming Protocol (1,000 Frames) - Decode Time
     # -------------------------------------------------------------------------
+    ax5 = fig.add_subplot(gs[1, 0])
     categories5 = ["B-FAST (Norm)", "B-FAST (Frag)", "NDJSON (Line)"]
     times5 = [0.31, 0.32, 45.0]
     colors5 = [c_bfast, c_bfast_alt, c_json]
@@ -316,10 +325,10 @@ def generate_chart():
     )
     ax5.set_title(
         "Streaming Protocol (1,000 Frames) - Decode Time",
-        fontsize=13,
+        fontsize=12,
         fontweight="bold",
         color="#111827",
-        pad=12,
+        pad=10,
     )
     ax5.set_ylim(0, max(times5) * 1.35)
 
@@ -344,7 +353,7 @@ def generate_chart():
                 f"{speedup:.0f}x faster\n(314 µs total)",
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.0,
                 color="#065F46",
                 fontweight="bold",
                 bbox={
@@ -358,6 +367,7 @@ def generate_chart():
     # -------------------------------------------------------------------------
     # 6. Streaming Throughput (Frames / Second)
     # -------------------------------------------------------------------------
+    ax6 = fig.add_subplot(gs[1, 1])
     categories6 = ["B-FAST (Norm)", "B-FAST (Frag)", "NDJSON (Line)"]
     throughput6 = [3181000, 3099000, 22222]
     colors6 = [c_bfast, c_bfast_alt, c_json]
@@ -381,14 +391,12 @@ def generate_chart():
     )
     ax6.set_title(
         "Streaming Throughput (Frames / Sec)",
-        fontsize=13,
+        fontsize=12,
         fontweight="bold",
         color="#111827",
-        pad=12,
+        pad=10,
     )
     ax6.set_ylim(0, max(throughput6) * 1.35)
-
-    # Format y-axis with millions (M)
     ax6.yaxis.set_major_formatter(
         plt.FuncFormatter(lambda x, p: f"{x*1e-6:.1f}M" if x >= 1e6 else f"{int(x):,}")
     )
@@ -414,7 +422,7 @@ def generate_chart():
                 f"3.18M fps\n{multiplier:.0f}x throughput",
                 ha="center",
                 va="bottom",
-                fontsize=9.5,
+                fontsize=9.0,
                 color="#065F46",
                 fontweight="bold",
                 bbox={
@@ -425,10 +433,141 @@ def generate_chart():
                 },
             )
 
-    plt.tight_layout(rect=[0, 0.02, 1, 0.96])
+    # -------------------------------------------------------------------------
+    # 7. B-FAST vs Protobuf: Real-World Python (10,000 Objects) [Wide Panel]
+    # -------------------------------------------------------------------------
+    ax7 = fig.add_subplot(gs[1, 2:])
+    categories7 = ["Encode (from Model)", "Decode (to Native Dicts)"]
+    bfast_times7 = [7.21, 18.88]
+    proto_times7 = [13.46, 87.13]
+
+    x7 = np.arange(len(categories7))
+    w7 = 0.28
+
+    rects7_1 = ax7.bar(
+        x7 - w7 / 2,
+        bfast_times7,
+        w7,
+        label="B-FAST",
+        color=c_bfast,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
+    )
+    rects7_2 = ax7.bar(
+        x7 + w7 / 2,
+        proto_times7,
+        w7,
+        label="Protobuf",
+        color=c_proto,
+        edgecolor="#1F2937",
+        linewidth=1.2,
+        zorder=3,
+    )
+
+    ax7.set_facecolor("#FFFFFF")
+    ax7.grid(True, axis="y", zorder=0)
+    ax7.set_ylabel(
+        "Time (ms) - Lower is better", fontsize=11, fontweight="bold", color="#374151"
+    )
+    ax7.set_title(
+        "B-FAST vs Protobuf (10,000 Objects in Python)",
+        fontsize=12,
+        fontweight="bold",
+        color="#111827",
+        pad=10,
+    )
+    ax7.set_xticks(x7)
+    ax7.set_xticklabels(categories7, fontsize=10.5, fontweight="bold", color="#1F2937")
+    ax7.set_ylim(0, max(proto_times7) * 1.35)
+    ax7.legend(loc="upper left", frameon=True, facecolor="#FFFFFF", edgecolor="#D1D5DB", fontsize=10.5)
+
+    # Encode: B-FAST
+    ax7.text(
+        rects7_1[0].get_x() + rects7_1[0].get_width() / 2,
+        rects7_1[0].get_height() + 1.2,
+        f"{bfast_times7[0]:.1f} ms",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+        color="#1F2937",
+    )
+    speedup_enc = proto_times7[0] / bfast_times7[0]
+    ax7.text(
+        rects7_1[0].get_x() + rects7_1[0].get_width() / 2,
+        rects7_1[0].get_height() + 10.0,
+        f"{speedup_enc:.1f}x faster\nthan Protobuf",
+        ha="center",
+        va="bottom",
+        fontsize=9.0,
+        color="#065F46",
+        fontweight="bold",
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#D1FAE5",
+            "edgecolor": "#10B981",
+            "alpha": 0.9,
+        },
+    )
+
+    # Encode: Protobuf
+    ax7.text(
+        rects7_2[0].get_x() + rects7_2[0].get_width() / 2,
+        rects7_2[0].get_height() + 1.2,
+        f"{proto_times7[0]:.1f} ms",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+        color="#1F2937",
+    )
+
+    # Decode: B-FAST
+    ax7.text(
+        rects7_1[1].get_x() + rects7_1[1].get_width() / 2,
+        rects7_1[1].get_height() + 1.2,
+        f"{bfast_times7[1]:.1f} ms",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+        color="#1F2937",
+    )
+    speedup_dec = proto_times7[1] / bfast_times7[1]
+    ax7.text(
+        rects7_1[1].get_x() + rects7_1[1].get_width() / 2,
+        rects7_1[1].get_height() + 10.0,
+        f"{speedup_dec:.1f}x faster\nthan Protobuf",
+        ha="center",
+        va="bottom",
+        fontsize=9.0,
+        color="#065F46",
+        fontweight="bold",
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "facecolor": "#D1FAE5",
+            "edgecolor": "#10B981",
+            "alpha": 0.9,
+        },
+    )
+
+    # Decode: Protobuf
+    ax7.text(
+        rects7_2[1].get_x() + rects7_2[1].get_width() / 2,
+        rects7_2[1].get_height() + 1.2,
+        f"{proto_times7[1]:.1f} ms",
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+        color="#1F2937",
+    )
+
+    fig.subplots_adjust(top=0.92, bottom=0.06, left=0.04, right=0.98, hspace=0.32, wspace=0.22)
     plt.savefig("benchmark_chart.png", dpi=180, bbox_inches="tight")
     print(
-        "✅ benchmark_chart.png successfully generated with 6 panels including Streaming!"
+        "✅ benchmark_chart.png successfully generated with 7 panels including Streaming and Protobuf!"
     )
 
 

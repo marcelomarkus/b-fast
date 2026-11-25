@@ -73,7 +73,7 @@ import { BFastDecoder } from 'bfast-client';
 // Decodifica ArrayBuffer ou Uint8Array
 const data = BFastDecoder.decode<User>(buffer);
 
-// Extração com arrays tipados (Zero-Copy Float64Array)
+// Extração com arrays tipados (Float64Array)
 const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 ```
 
@@ -81,7 +81,7 @@ const numbers = BFastDecoder.decode(buffer, { typedArrays: true });
 
 ## ⚡ Compressão Transparente (Zero Config)
 
-O `bfast-client` gerencia compressão e descompressão LZ4 de forma totalmente automática, transparente e com zero configuração:
+O `bfast-client` gerencia compressão e descompressão de forma totalmente automática, transparente e com zero configuração:
 
 - **Zero Configuração:** Sem necessidade de plugins de bundler (Vite, Webpack, Next.js), arquivos externos para servir ou dependências nativas.
 - **Detecção Automática:** Ao decodificar qualquer payload gerado com compressão (`compress: true`), o cliente detecta e descomprime os dados instantaneamente.
@@ -245,6 +245,21 @@ axios.interceptors.response.use(response => {
     return response;
 });
 ```
+
+---
+
+## 🔍 Extensão DevTools: B-FAST Inspector
+
+Ao depurar no navegador, payloads binários costumam aparecer como texto bruto ilegível no Network tab do DevTools.
+
+A extensão oficial **[B-FAST Inspector](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** restaura a mesma experiência transparente de depuração do JSON:
+
+- **Interceptação Automática:** Captura qualquer resposta com `Content-Type: application/x-bfast`.
+- **Árvore Interativa:** Explore os dados decodificados em uma árvore visual expansível e colorida.
+- **Métricas em Tempo Real:** Acompanhe a economia de banda e tempo de decode por requisição.
+- **Gerador de Cartão de Performance:** Crie snapshots de benchmark prontos para compartilhamento.
+
+Disponível na **[Chrome Web Store](https://chromewebstore.google.com/detail/b-fast-inspector/nbjopcagmflkmgfppkeijcpbkobkgehp)** (compatível com Google Chrome, Microsoft Edge, Brave e Opera).
 
 ---
 

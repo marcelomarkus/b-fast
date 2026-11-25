@@ -36,7 +36,7 @@ Incluindo serialização + transferência de rede + deserialização (10.000 obj
 |---------|-------------|-------------------|
 | JSON | 114.5ms | 0.8x |
 | orjson | 91.7ms | 1.0x |
-| **B-FAST + LZ4** | **16.1ms** | **🚀 5.7x** |
+| **B-FAST (Comprimido)** | **16.1ms** | **🚀 5.7x** |
 
 **🎯 B-FAST é 5.7x mais rápido em redes lentas!**
 
@@ -45,7 +45,7 @@ Incluindo serialização + transferência de rede + deserialização (10.000 obj
 |---------|-------------|-------------------|
 | JSON | 29.4ms | 0.5x |
 | orjson | 15.3ms | 1.0x |
-| **B-FAST + LZ4** | **7.2ms** | **🚀 2.1x** |
+| **B-FAST (Comprimido)** | **7.2ms** | **🚀 2.1x** |
 
 **🎯 B-FAST é 2.1x mais rápido mesmo em redes rápidas!**
 
@@ -54,7 +54,7 @@ Incluindo serialização + transferência de rede + deserialização (10.000 obj
 |---------|-------------|-------------------|
 | JSON | 20.9ms | 0.4x |
 | orjson | 7.7ms | 1.0x |
-| **B-FAST + LZ4** | **6.3ms** | **🚀 1.2x** |
+| **B-FAST (Comprimido)** | **6.3ms** | **🚀 1.2x** |
 
 **🎯 B-FAST permanece competitivo mesmo em redes ultra-rápidas!**
 
@@ -70,6 +70,25 @@ Teste especial para dados científicos (8MB):
 
 **🚀 B-FAST é 14x mais rápido que orjson!**
 **🚀 B-FAST é 96x mais rápido que JSON!**
+
+## 🥊 B-FAST vs Protocol Buffers (Protobuf)
+
+O Protocol Buffers é amplamente reconhecido como padrão da indústria para serialização binária. Contudo, em aplicações Python modernas (como serviços FastAPI, APIs e microsserviços de dados), o uso de Protobuf introduz fricção e sobrecarga de conversão consideráveis.
+
+Em um benchmark ponta a ponta serializando e deserializando 10.000 objetos estruturados de aplicação:
+
+| Característica / Métrica | Protocol Buffers | B-FAST | Vantagem |
+|--------------------------|:----------------:|:------:|----------|
+| **Necessidade de Esquema** | Exige arquivos `.proto` e compilação | **Nenhum** (Plug-and-play) | Sem boilerplate ou etapa de build |
+| **Encode no Mundo Real** *(A partir de modelos da aplicação)* | 13.5ms *(Model → Proto → Wire)* | **7.2ms** *(Direto)* | **🚀 1.87x mais rápido** |
+| **Decode Completo** *(Para dicionários/listas nativos do Python)* | 87.1ms *(`MessageToDict`)* | **18.9ms** *(Nativo)* | **🚀 4.6x mais rápido** |
+| **Payload Comprimido** | 374 KB | **410 KB** | Compacidade equivalente |
+| **Depuração no DevTools** | Exige proxies externos e schemas | **Extensão Oficial para DevTools** | Inspeção direta no Network tab |
+
+### Por que isso importa na prática:
+- **Sem Custo de Conversão:** Embora o Protobuf seja rápido em C++ puro, aplicações em Python gastam ciclos significativos copiando dados entre modelos da aplicação (como Pydantic ou dicionários) e as classes de mensagem geradas pelo Protobuf. O B-FAST trabalha diretamente com os seus objetos Python existentes.
+- **Usabilidade Imediata:** O decode inicial do Protobuf entrega apenas wrappers de mensagem especializados; convertê-los para coleções padrão do Python leva mais de 87ms. O B-FAST entrega estruturas nativas do Python prontas para consumo imediatamente após o decode.
+- **Ergonomia:** Você obtém serialização binária compacta e alta taxa de transferência sem precisar manter contratos `.proto`, versionar schemas ou executar ferramentas de compilação.
 
 ## 🎯 Quando Usar B-FAST
 
@@ -97,9 +116,9 @@ A performance do B-FAST escala linearmente com o tamanho dos dados:
 - **10.000 objetos**: **~230 ns** por objeto (2.30 ms total encode)
 
 ### Eficiência de Memória
-- **Arrays NumPy zero-copy**
+- **Serialização nativa de arrays NumPy**
 - **Operações de memória alinhadas ao cache**
-- **Compressão eficiente** com LZ4
+- **Compressão eficiente integrada**
 
 ## 🔬 Otimizações Técnicas
 

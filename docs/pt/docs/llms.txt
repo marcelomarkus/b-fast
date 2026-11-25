@@ -1,6 +1,6 @@
 # B-FAST: Binary Fast Adaptive Serialization Transfer (Guia para IAs)
 
-> Protocolo de serialização binária de ultra-alta performance implementado em Rust com decodificação zero-copy, compressão LZ4, deduplicação de strings e streaming em tempo real. Projetado para APIs em Python (FastAPI, Django Ninja), frontends modernos em TypeScript (React, TanStack Query) e orquestradores de Agentes de IA (Model Context Protocol / FastMCP).
+> Protocolo de serialização binária de ultra-alta performance implementado em Rust com decodificação adaptativa, compressão integrada, deduplicação de strings e streaming em tempo real. Projetado para APIs em Python (FastAPI, Django Ninja), frontends modernos em TypeScript (React, TanStack Query) e orquestradores de Agentes de IA (Model Context Protocol / FastMCP).
 
 ## Início Rápido e Instalação
 
