@@ -1,5 +1,12 @@
 #![allow(non_local_definitions)]
 
+pub type PyObject = pyo3::Py<pyo3::PyAny>;
+
+#[inline(always)]
+pub(crate) unsafe fn py_from_owned_ptr(py: Python<'_>, ptr: *mut pyo3::ffi::PyObject) -> PyObject {
+    pyo3::Bound::from_owned_ptr(py, ptr).unbind()
+}
+
 use ahash::AHashMap;
 use lz4_flex::compress_prepend_size;
 use numpy::PyReadonlyArrayDyn;
@@ -141,7 +148,7 @@ impl Default for BFast {
 impl BFast {
     #[new]
     pub fn new() -> Self {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let small_ints = std::array::from_fn(|i| unsafe {
                 pyo3::Bound::from_owned_ptr(py, pyo3::ffi::PyLong_FromLongLong(i as i64))
                     .into_any()
@@ -240,7 +247,7 @@ impl BFast {
     #[pyo3(signature = (obj, compress = true))]
     pub fn encode_packed(&mut self, obj: &Bound<'_, PyAny>, compress: bool) -> PyResult<PyObject> {
         if !compress && unsafe { pyo3::ffi::PyList_CheckExact(obj.as_ptr()) != 0 } {
-            let list = unsafe { obj.downcast_unchecked::<PyList>() };
+            let list = unsafe { obj.cast_unchecked::<PyList>() };
             let list_len = if self.fast_cpython_abi {
                 unsafe { *(list.as_ptr().byte_add(16) as *const isize) as usize }
             } else {
@@ -296,7 +303,7 @@ impl BFast {
                 self.work_buffer.as_ptr()
             };
             ptr::copy_nonoverlapping(src_ptr, dst.add(6), slice_len);
-            Ok(PyObject::from_owned_ptr(py, ptr))
+            Ok(py_from_owned_ptr(py, ptr))
         }
     }
 
@@ -519,7 +526,7 @@ impl BFast {
         self.recursion_depth = 0;
 
         if unsafe { pyo3::ffi::PyList_CheckExact(obj.as_ptr()) != 0 } {
-            let list = unsafe { obj.downcast_unchecked::<PyList>() };
+            let list = unsafe { obj.cast_unchecked::<PyList>() };
             if list.len() > 8 {
                 if self.recursion_depth >= MAX_RECURSION_DEPTH {
                     return Err(PyErr::new::<pyo3::exceptions::PyRecursionError, _>(
@@ -542,7 +549,7 @@ impl BFast {
         self.payload_buffer.clear();
         std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
 
-        let serialize_res = if let Ok(list) = obj.downcast::<PyList>() {
+        let serialize_res = if let Ok(list) = obj.cast::<PyList>() {
             if list.len() > 8 && self.serialize_pydantic_simd_batch(list).is_ok() {
                 Ok(())
             } else {
@@ -641,7 +648,7 @@ impl BFast {
             if ptr.is_null() {
                 return Err(PyErr::fetch(py));
             }
-            Ok(PyObject::from_owned_ptr(py, ptr))
+            Ok(py_from_owned_ptr(py, ptr))
         }
     }
 
@@ -1278,7 +1285,7 @@ impl BFast {
                     final_len as pyo3::ffi::Py_ssize_t;
                 *dst = 0;
                 self.last_was_compressed = false;
-                return Some(PyObject::from_owned_ptr(py, pybytes_ptr));
+                return Some(py_from_owned_ptr(py, pybytes_ptr));
             }
         }
     }
@@ -1513,7 +1520,7 @@ impl BFast {
             let dict_ptr_ptr = unsafe { get_dict_ptr(first_ptr) };
             if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
                 let bound = unsafe { Bound::from_borrowed_ptr(list.py(), *dict_ptr_ptr) };
-                if let Ok(d) = bound.downcast_into::<PyDict>() {
+                if let Ok(d) = bound.cast_into::<PyDict>() {
                     (true, d)
                 } else {
                     self.decrease_recursion_depth();
@@ -1525,7 +1532,7 @@ impl BFast {
                 let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
                 if !p.is_null() {
                     let bound = unsafe { Bound::from_owned_ptr(list.py(), p) };
-                    if let Ok(d) = bound.downcast_into::<PyDict>() {
+                    if let Ok(d) = bound.cast_into::<PyDict>() {
                         (true, d)
                     } else {
                         self.decrease_recursion_depth();
@@ -1535,7 +1542,7 @@ impl BFast {
                     }
                 } else {
                     unsafe { pyo3::ffi::PyErr_Clear() };
-                    if let Ok(d) = first_item.downcast::<PyDict>() {
+                    if let Ok(d) = first_item.cast::<PyDict>() {
                         (false, d.clone())
                     } else {
                         self.decrease_recursion_depth();
@@ -1560,7 +1567,7 @@ impl BFast {
         let mut use_fast_mode = true;
 
         for (k, val) in dict.iter() {
-            let name = if let Ok(s) = k.downcast::<PyString>() {
+            let name = if let Ok(s) = k.cast::<PyString>() {
                 s.to_str().unwrap_or("")
             } else {
                 ""
@@ -1878,7 +1885,7 @@ impl BFast {
             let dict_ptr_ptr = unsafe { get_dict_ptr(first_ptr) };
             if !dict_ptr_ptr.is_null() && unsafe { !(*dict_ptr_ptr).is_null() } {
                 let bound = unsafe { Bound::from_borrowed_ptr(first_item.py(), *dict_ptr_ptr) };
-                if let Ok(d) = bound.downcast_into::<PyDict>() {
+                if let Ok(d) = bound.cast_into::<PyDict>() {
                     (true, d)
                 } else {
                     return None;
@@ -1887,14 +1894,14 @@ impl BFast {
                 let p = unsafe { pyo3::ffi::PyObject_GetAttr(first_ptr, dict_attr_ptr) };
                 if !p.is_null() {
                     let bound = unsafe { Bound::from_owned_ptr(first_item.py(), p) };
-                    if let Ok(d) = bound.downcast_into::<PyDict>() {
+                    if let Ok(d) = bound.cast_into::<PyDict>() {
                         (true, d)
                     } else {
                         return None;
                     }
                 } else {
                     unsafe { pyo3::ffi::PyErr_Clear() };
-                    if let Ok(d) = first_item.downcast::<PyDict>() {
+                    if let Ok(d) = first_item.cast::<PyDict>() {
                         (false, d.clone())
                     } else {
                         return None;
@@ -1914,7 +1921,7 @@ impl BFast {
 
         let mut field_id = 0u32;
         for (k, val) in dict.iter() {
-            let name = if let Ok(s) = k.downcast::<PyString>() {
+            let name = if let Ok(s) = k.cast::<PyString>() {
                 s.to_str().unwrap_or("")
             } else {
                 return None;
@@ -2457,12 +2464,12 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(b) = val.downcast::<pyo3::types::PyBool>() {
+        if let Ok(b) = val.cast::<pyo3::types::PyBool>() {
             self.work_buffer.push(if b.is_true() { 0x21 } else { 0x20 });
             return Ok(());
         }
 
-        if let Ok(l) = val.downcast::<pyo3::types::PyInt>() {
+        if let Ok(l) = val.cast::<pyo3::types::PyInt>() {
             let n: i64 = l.extract()?;
             if (0..=7).contains(&n) {
                 self.work_buffer.push(0x30 | (n as u8));
@@ -2473,7 +2480,7 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(py_str) = val.downcast::<PyString>() {
+        if let Ok(py_str) = val.cast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
@@ -2484,7 +2491,7 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(f) = val.downcast::<pyo3::types::PyFloat>() {
+        if let Ok(f) = val.cast::<pyo3::types::PyFloat>() {
             let val = f.value();
             self.work_buffer.push(0x40);
             self.work_buffer.extend_from_slice(&val.to_le_bytes());
@@ -2492,7 +2499,7 @@ impl BFast {
         }
 
         // Fast path for list in serialize_value_fast
-        if let Ok(list) = val.downcast::<PyList>() {
+        if let Ok(list) = val.cast::<PyList>() {
             let len = list.len();
             self.work_buffer.push(0x60);
             self.work_buffer
@@ -2548,7 +2555,7 @@ impl BFast {
         };
 
         let dict = unsafe { Bound::from_borrowed_ptr(obj.py(), dict_ptr) };
-        let dict = match dict.downcast::<PyDict>() {
+        let dict = match dict.cast::<PyDict>() {
             Ok(d) => d,
             Err(_) => {
                 unsafe {
@@ -2586,13 +2593,13 @@ impl BFast {
         }
 
         // Bool check (must come before int)
-        if let Ok(b) = val.downcast::<pyo3::types::PyBool>() {
+        if let Ok(b) = val.cast::<pyo3::types::PyBool>() {
             self.work_buffer.push(if b.is_true() { 0x21 } else { 0x20 });
             return Ok(());
         }
 
         // Int check
-        if let Ok(l) = val.downcast::<pyo3::types::PyInt>() {
+        if let Ok(l) = val.cast::<pyo3::types::PyInt>() {
             let n: i64 = l.extract()?;
             if (0..=7).contains(&n) {
                 self.work_buffer.push(0x30 | (n as u8));
@@ -2604,7 +2611,7 @@ impl BFast {
         }
 
         // String check
-        if let Ok(py_str) = val.downcast::<PyString>() {
+        if let Ok(py_str) = val.cast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
@@ -2616,7 +2623,7 @@ impl BFast {
         }
 
         // Float check
-        if let Ok(f) = val.downcast::<pyo3::types::PyFloat>() {
+        if let Ok(f) = val.cast::<pyo3::types::PyFloat>() {
             let val = f.value();
             self.work_buffer.push(0x40);
             self.work_buffer.extend_from_slice(&val.to_le_bytes());
@@ -2765,13 +2772,13 @@ impl BFast {
         }
 
         // 1. PyBool MUST come before PyLong because bool is a subclass of int in Python
-        if let Ok(b) = val.downcast::<pyo3::types::PyBool>() {
+        if let Ok(b) = val.cast::<pyo3::types::PyBool>() {
             self.work_buffer.push(if b.is_true() { 0x21 } else { 0x20 });
             return Ok(());
         }
 
         // 2. PyLong (int)
-        if let Ok(l) = val.downcast::<pyo3::types::PyInt>() {
+        if let Ok(l) = val.cast::<pyo3::types::PyInt>() {
             if let Ok(n) = l.extract::<i64>() {
                 if (0..=7).contains(&n) {
                     self.work_buffer.push(0x30 | (n as u8));
@@ -2784,7 +2791,7 @@ impl BFast {
         }
 
         // 3. PyFloat (float)
-        if let Ok(f) = val.downcast::<pyo3::types::PyFloat>() {
+        if let Ok(f) = val.cast::<pyo3::types::PyFloat>() {
             let val = f.value();
             self.work_buffer.push(0x40);
             self.work_buffer.extend_from_slice(&val.to_le_bytes());
@@ -2792,7 +2799,7 @@ impl BFast {
         }
 
         // 4. PyString (str)
-        if let Ok(py_str) = val.downcast::<PyString>() {
+        if let Ok(py_str) = val.cast::<PyString>() {
             self.work_buffer.push(0x50);
             let str_data = py_str.to_str()?;
             let bytes = str_data.as_bytes();
@@ -2804,11 +2811,11 @@ impl BFast {
         }
 
         // 5. PyDict (dict)
-        if let Ok(dict) = val.downcast::<PyDict>() {
+        if let Ok(dict) = val.cast::<PyDict>() {
             self.work_buffer.push(0x70);
 
             for (k, v) in dict.iter() {
-                let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
+                let key_str = if let Ok(py_str) = k.cast::<PyString>() {
                     py_str.to_str()?
                 } else {
                     &k.to_string()
@@ -2824,7 +2831,7 @@ impl BFast {
         }
 
         // 6. PyList (list)
-        if let Ok(list) = val.downcast::<PyList>() {
+        if let Ok(list) = val.cast::<PyList>() {
             self.work_buffer.push(0x60);
             let len = list.len();
             self.work_buffer
@@ -2842,7 +2849,7 @@ impl BFast {
         }
 
         // 7. PyTuple (serialize as list)
-        if let Ok(tuple) = val.downcast::<PyTuple>() {
+        if let Ok(tuple) = val.cast::<PyTuple>() {
             self.work_buffer.push(0x60);
             let len = tuple.len();
             self.work_buffer
@@ -2860,7 +2867,7 @@ impl BFast {
         }
 
         // 8. PySet / PyFrozenSet (serialize as list)
-        if let Ok(set) = val.downcast::<PySet>() {
+        if let Ok(set) = val.cast::<PySet>() {
             self.work_buffer.push(0x60);
             let len = set.len();
             self.work_buffer
@@ -2872,7 +2879,7 @@ impl BFast {
             return Ok(());
         }
 
-        if let Ok(frozenset) = val.downcast::<PyFrozenSet>() {
+        if let Ok(frozenset) = val.cast::<PyFrozenSet>() {
             self.work_buffer.push(0x60);
             let len = frozenset.len();
             self.work_buffer
@@ -3001,11 +3008,11 @@ impl BFast {
 
         // 16. Try __dict__ for Pydantic models
         if let Ok(dict_attr) = val.getattr("__dict__") {
-            if let Ok(dict) = dict_attr.downcast::<PyDict>() {
+            if let Ok(dict) = dict_attr.cast::<PyDict>() {
                 self.work_buffer.push(0x70);
 
                 for (k, v) in dict.iter() {
-                    let key_str = if let Ok(py_str) = k.downcast::<PyString>() {
+                    let key_str = if let Ok(py_str) = k.cast::<PyString>() {
                         py_str.to_str()?
                     } else {
                         &k.to_string()
@@ -3232,7 +3239,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             if ptr.is_null() {
                 return Err(PyErr::fetch(self.py));
             }
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, ptr) });
         }
 
         // Small integers (bit-packed)
@@ -3251,7 +3258,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             if ptr.is_null() {
                 return Err(PyErr::fetch(self.py));
             }
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, ptr) });
         }
 
         // Raw string: direct single-pass C-API construction
@@ -3273,7 +3280,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             if ptr.is_null() {
                 return Err(PyErr::fetch(self.py));
             }
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, ptr) });
         }
 
         // List/Array: allocate PyList directly and steal items
@@ -3305,7 +3312,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     }
                 }
             }
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, py_list_ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, py_list_ptr) });
         }
 
         // Object start: direct C-API dict assignment with interned keys
@@ -3358,7 +3365,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             }
 
             self.offset += 1; // Skip 0x7F
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, dict_ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, dict_ptr) });
         }
 
         // Bytes: direct C-API bytes construction
@@ -3380,7 +3387,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
             if ptr.is_null() {
                 return Err(PyErr::fetch(self.py));
             }
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, ptr) });
         }
 
         // NumPy Array (f64): decode directly into PyList of PyFloat without intermediate Vec
@@ -3417,7 +3424,7 @@ impl<'a, 'py> BFastParser<'a, 'py> {
                     pyo3::ffi::PyList_SetItem(py_list_ptr, i as pyo3::ffi::Py_ssize_t, float_ptr);
                 }
             }
-            return Ok(unsafe { PyObject::from_owned_ptr(self.py, py_list_ptr) });
+            return Ok(unsafe { py_from_owned_ptr(self.py, py_list_ptr) });
         }
 
         // DateTime (0xD1) - ISO 8601 string via cached callable
