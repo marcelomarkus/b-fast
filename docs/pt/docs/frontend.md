@@ -98,6 +98,55 @@ const created = await bfastFetch<User>('/api/users', {
 
 ---
 
+## 🧵 Decodificação Off-Main-Thread com Web Workers (`bfast-client/worker`) 🚀
+
+Para aplicações de alta frequência ou payloads volumosos (modelos 3D, nuvens de pontos, animações em canvas, mapas geoespaciais, tabelas de telemetria em tempo real), decodificar dados na thread principal (UI thread) do navegador causa quedas de taxa de quadros e travamentos perceptíveis ("jank").
+
+O submódulo `bfast-client/worker` executa a decodificação binária do B-FAST completamente fora da main thread em Web Workers dedicados em segundo plano, mantendo a interface do usuário totalmente livre e responsiva sem micro-travamentos.
+
+### Fetch com Worker Automático (`bfastFetchWorker`)
+
+```typescript
+import { bfastFetchWorker } from 'bfast-client/worker';
+
+// Faz o download e decodifica integralmente em background no Web Worker
+const malha = await bfastFetchWorker<{ positions: Float32Array }>('/api/malha-3d', {
+    typedArrays: true,
+});
+
+// A interface do usuário não congela, 0.00ms de bloqueio no event loop!
+```
+
+### Decodificar Buffers Existentes em Worker (`decodeInWorker`)
+
+```typescript
+import { decodeInWorker } from 'bfast-client/worker';
+
+// Descarrega o processamento integralmente para o worker em segundo plano
+const dados = await decodeInWorker(binaryBuffer);
+```
+
+### Pool Escalável de Workers (`BFastWorkerPool`)
+
+Para aplicações com alto volume concorrente de dados (ex: dashboards com dezenas de gráficos ou renderizadores de tiles geoespaciais), você pode gerenciar um pool distribuído de workers:
+
+```typescript
+import { BFastWorkerPool } from 'bfast-client/worker';
+
+// Inicializa um pool com 4 workers dedicados em paralelo
+const pool = new BFastWorkerPool({ size: 4 });
+
+// Distribui a decodificação entre os workers disponíveis com balanceamento de carga
+const resultados = await Promise.all(
+    buffers.map(buf => pool.decode(buf))
+);
+
+// Finaliza os workers quando necessário
+pool.terminate();
+```
+
+---
+
 ## 🔄 Serialização e Decodificação Bidirecional
 
 ### Codificação Binária (`BFastEncoder`)

@@ -98,6 +98,55 @@ const created = await bfastFetch<User>('/api/users', {
 
 ---
 
+## 🧵 Web Worker Off-Main-Thread Decoding (`bfast-client/worker`) 🚀
+
+For high-frequency or large payloads (3D models, point clouds, canvas animations, geospatial datasets, real-time telemetry tables), decoding data on the browser's main UI thread can cause noticeable frame drops and UI freezes ("jank").
+
+The `bfast-client/worker` subpath decodes B-FAST binary payloads entirely off the main thread in background Web Workers, keeping your UI thread completely free and responsive without micro-stutters.
+
+### Drop-in Worker Fetch (`bfastFetchWorker`)
+
+```typescript
+import { bfastFetchWorker } from 'bfast-client/worker';
+
+// Fetches and decodes entirely inside a background Web Worker
+const mesh = await bfastFetchWorker<{ positions: Float32Array }>('/api/3d-mesh', {
+    typedArrays: true,
+});
+
+// UI thread never stutters, 0.00ms main thread blocking!
+```
+
+### Decode Existing Buffers in Worker (`decodeInWorker`)
+
+```typescript
+import { decodeInWorker } from 'bfast-client/worker';
+
+// Offloads decoding entirely to a background worker
+const decoded = await decodeInWorker(binaryBuffer);
+```
+
+### Scalable Worker Pool (`BFastWorkerPool`)
+
+For heavy concurrent applications (e.g. multi-chart dashboards, GIS tile loaders, or simulation engines), you can create and manage dedicated worker pools:
+
+```typescript
+import { BFastWorkerPool } from 'bfast-client/worker';
+
+// Initialize a pool with 4 concurrent background workers
+const pool = new BFastWorkerPool({ size: 4 });
+
+// Decode across available pool workers with automatic load balancing
+const results = await Promise.all(
+    buffers.map(buf => pool.decode(buf))
+);
+
+// Terminate pool workers when no longer needed
+pool.terminate();
+```
+
+---
+
 ## 🔄 Bidirectional Serialization & Decoding
 
 ### Binary Encoding (`BFastEncoder`)
