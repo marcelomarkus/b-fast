@@ -104,6 +104,8 @@ Para aplicações de alta frequência ou payloads volumosos (modelos 3D, nuvens 
 
 O submódulo `bfast-client/worker` executa a decodificação binária do B-FAST completamente fora da main thread em Web Workers dedicados em segundo plano, mantendo a interface do usuário totalmente livre e responsiva sem micro-travamentos.
 
+> 🎮 **Simulação Interativa ao Vivo:** Veja a biblioteca oficial `bfast-client` em ação com partículas 3D animadas em tempo real na nossa **[Demo 3D em Tempo Real](demo.md)**.
+
 ### Fetch com Worker Automático (`bfastFetchWorker`)
 
 ```typescript

@@ -15,6 +15,7 @@ nav = [
     { "FastMCP & MCP" = "mcp.md" },
     { "Integrations" = "integrations.md" },
     { "Frontend (TypeScript)" = "frontend.md" },
+    { "Live 3D Demo" = "demo.md" },
     { "For AIs & LLMs (llms.txt)" = "ai.md" },
   ]},
   { "Reference" = [
