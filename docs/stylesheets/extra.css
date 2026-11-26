@@ -24,3 +24,266 @@
 [data-md-color-scheme="default"] img[href*="#gh-dark-mode-only"] {
     display: none !important;
 }
+
+
+/* ==========================================================================
+   ⚡ B-FAST Interactive 3D Demo & Telemetry HUD Styles
+   ========================================================================== */
+
+.bfast-demo-wrapper {
+    position: relative;
+    margin: 1.5rem 0 2.5rem 0;
+    padding: 1.25rem;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.04) 0%, rgba(15, 23, 42, 0.08) 100%);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+}
+
+[data-md-color-scheme="slate"] .bfast-demo-wrapper {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.6) 0%, rgba(30, 41, 59, 0.7) 100%);
+    border-color: rgba(51, 65, 85, 0.8);
+    box-shadow: 0 15px 30px -10px rgba(0, 0, 0, 0.5);
+}
+
+/* ⛶ Fullscreen Immersive View */
+.bfast-demo-wrapper.is-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: radial-gradient(circle at 50% 50%, #070d18 0%, #010307 100%) !important;
+    padding: 1.25rem 2rem !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+}
+
+.bfast-demo-wrapper.is-fullscreen .bfast-canvas-container {
+    flex: 1 1 0% !important;
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+.bfast-modal-close-btn {
+    display: none;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+    padding: 0.45rem 0.95rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.bfast-demo-wrapper.is-fullscreen .bfast-modal-close-btn {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.bfast-modal-close-btn:hover {
+    background: rgba(239, 68, 68, 0.9) !important;
+    color: #ffffff !important;
+}
+
+.bfast-controls-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.bfast-control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.bfast-control-group label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--md-default-fg-color--light, #64748b);
+}
+
+.bfast-control-group select {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+    border-radius: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: var(--md-default-bg-color, #ffffff);
+    color: var(--md-default-fg-color, #1e293b);
+    cursor: pointer;
+}
+
+[data-md-color-scheme="slate"] .bfast-control-group select {
+    background: #1e293b;
+    color: #f1f5f9;
+    border-color: #475569;
+}
+
+.bfast-action-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.bfast-btn {
+    padding: 0.45rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.bfast-btn-immersive {
+    background: linear-gradient(135deg, #0d9488 0%, #0284c7 100%);
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(13, 148, 136, 0.35);
+}
+.bfast-btn-immersive:hover {
+    box-shadow: 0 0 20px rgba(13, 148, 136, 0.65);
+    transform: translateY(-1px);
+}
+
+.bfast-btn-primary {
+    background: #0284c7;
+    color: #ffffff;
+}
+.bfast-btn-primary:hover {
+    background: #0369a1;
+}
+
+.bfast-btn-danger {
+    background: #ef4444;
+    color: #ffffff;
+}
+.bfast-btn-danger:hover {
+    background: #dc2626;
+}
+
+/* Telemetry HUD Grid */
+.bfast-hud-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.bfast-hud-card {
+    padding: 0.75rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+[data-md-color-scheme="slate"] .bfast-hud-card {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: rgba(51, 65, 85, 0.6);
+}
+
+.bfast-hud-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--md-default-fg-color--light, #64748b);
+    margin-bottom: 0.25rem;
+}
+
+.bfast-hud-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    font-family: monospace, monospace;
+}
+
+.bfast-hud-sub {
+    font-size: 0.65rem;
+    color: var(--md-default-fg-color--lighter, #94a3b8);
+    margin-top: 0.2rem;
+}
+
+.fps-good, .jank-good, .savings-good {
+    color: #10b981 !important;
+}
+
+.fps-warning, .jank-warning {
+    color: #f59e0b !important;
+}
+
+.fps-bad, .jank-bad {
+    color: #ef4444 !important;
+}
+
+/* Canvas Container */
+.bfast-canvas-container {
+    position: relative;
+    width: 100%;
+    height: 520px;
+    border-radius: 10px;
+    background: radial-gradient(circle at 50% 50%, #0d1728 0%, #010409 100%);
+    overflow: hidden;
+    box-shadow: inset 0 0 35px rgba(0, 0, 0, 0.85);
+    border: 1px solid rgba(51, 65, 85, 0.8);
+}
+
+#bfast-3d-canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+    cursor: grab;
+}
+
+#bfast-3d-canvas:active {
+    cursor: grabbing;
+}
+
+.bfast-canvas-overlay-hints {
+    position: absolute;
+    bottom: 12px;
+    left: 14px;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.5);
+    pointer-events: none;
+    letter-spacing: 0.02em;
+}
+
+.bfast-status-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 20px;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.status-bfast {
+    background: rgba(13, 148, 136, 0.85);
+    color: #ffffff;
+    border: 1px solid rgba(45, 212, 191, 0.5);
+}

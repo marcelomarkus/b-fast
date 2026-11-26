@@ -104,6 +104,8 @@ For high-frequency or large payloads (3D models, point clouds, canvas animations
 
 The `bfast-client/worker` subpath decodes B-FAST binary payloads entirely off the main thread in background Web Workers, keeping your UI thread completely free and responsive without micro-stutters.
 
+> 🎮 **Live Interactive Demo:** See the official `bfast-client` library in action with real-time animated 3D particles in our **[Live 3D Demo](demo.md)**.
+
 ### Drop-in Worker Fetch (`bfastFetchWorker`)
 
 ```typescript
