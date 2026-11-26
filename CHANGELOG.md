@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.12.0] - 2026-11-26
+
+### 🚀 Features & Enhancements
+- **Web Worker Off-Main-Thread Decoding (`bfast-client/worker`)**: Added native Web Worker and background thread decoding support for `bfast-client` in browsers and Node.js (`worker_threads`).
+- **Transparent Worker Fetch (`bfastFetchWorker`)**: Automatically downloads and decodes massive B-FAST binary payloads off the main UI thread with zero-stall memory transfer, keeping the browser UI completely fluid at 60–120+ FPS.
+- **Worker Buffer Decoding (`decodeInWorker`)**: Offloads pre-fetched binary payloads directly to a dedicated background Web Worker.
+- **Scalable Concurrency (`BFastWorkerPool`)**: Added pool management with round-robin dispatch for multi-stream, GIS tile rendering, or high-frequency real-time dashboard applications.
+- **Frontend Documentation**: Added comprehensive guides and TypeScript examples in English and Portuguese documentation.
+
 ## [1.11.0] - 2026-11-25
 
 ### 🚀 Features & Enhancements
