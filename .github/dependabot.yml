@@ -5,15 +5,21 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
 
   # Mantém dependências do Rust (Cargo.toml) atualizadas
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
 
   # Mantém dependências do TypeScript (client-ts/package.json) atualizadas
   - package-ecosystem: "npm"
     directory: "/client-ts"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
