@@ -416,7 +416,7 @@ pub fn send_native_socket(
     data: &[u8],
     non_blocking: bool,
 ) -> PyResult<usize> {
-    py.allow_threads(|| {
+    py.detach(|| {
         #[cfg(target_os = "linux")]
         {
             let mut pipe = NativePipe::new().map_err(io_error_to_py_err)?;
@@ -524,7 +524,7 @@ impl BFastNativeSender {
         data: &[u8],
         non_blocking: bool,
     ) -> PyResult<usize> {
-        py.allow_threads(|| {
+        py.detach(|| {
             Self::send_bytes_disjoint(
                 #[cfg(target_os = "linux")]
                 &mut self.pipe,
@@ -560,7 +560,7 @@ impl BFastNativeSender {
                 {
                     let frame_size = self.buffer.len() - prev_len;
                     if self.buffer_size == 0 || self.buffer.len() >= self.buffer_size {
-                        py.allow_threads(|| {
+                        py.detach(|| {
                             fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                                 .map_err(io_error_to_py_err)
                         })?;
@@ -603,7 +603,7 @@ impl BFastNativeSender {
 
         let frame_size = 6 + slice_len;
         if self.buffer_size == 0 {
-            py.allow_threads(|| {
+            py.detach(|| {
                 send_iovec_pair(sock_fd, &header, payload_slice, non_blocking)
                     .map_err(io_error_to_py_err)
             })?;
@@ -614,7 +614,7 @@ impl BFastNativeSender {
         self.buffer.extend_from_slice(payload_slice);
 
         if self.buffer.len() >= self.buffer_size {
-            py.allow_threads(|| {
+            py.detach(|| {
                 fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                     .map_err(io_error_to_py_err)
             })?;
@@ -699,7 +699,7 @@ impl BFastNativeSender {
                 }
 
                 if self.buffer.len() >= self.buffer_size {
-                    py.allow_threads(|| {
+                    py.detach(|| {
                         fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                             .map_err(io_error_to_py_err)
                     })?;
@@ -768,7 +768,7 @@ impl BFastNativeSender {
         }
 
         if self.buffer.len() >= self.buffer_size {
-            py.allow_threads(|| {
+            py.detach(|| {
                 fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                     .map_err(io_error_to_py_err)
             })?;
@@ -824,7 +824,7 @@ impl BFastNativeSender {
             }
 
             if self.buffer.len() >= self.buffer_size {
-                py.allow_threads(|| {
+                py.detach(|| {
                     fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                         .map_err(io_error_to_py_err)
                 })?;
@@ -844,13 +844,13 @@ impl BFastNativeSender {
         non_blocking: bool,
     ) -> PyResult<usize> {
         if self.buffer_size == 0 {
-            return py.allow_threads(|| {
+            return py.detach(|| {
                 fallback_socket_send(sock_fd, &HANDSHAKE, non_blocking).map_err(io_error_to_py_err)
             });
         }
         self.buffer.extend_from_slice(&HANDSHAKE);
         if self.buffer.len() >= self.buffer_size {
-            py.allow_threads(|| {
+            py.detach(|| {
                 fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                     .map_err(io_error_to_py_err)
             })?;
@@ -863,13 +863,13 @@ impl BFastNativeSender {
     #[pyo3(signature = (sock_fd, *, non_blocking = false))]
     pub fn send_eos(&mut self, py: Python, sock_fd: i32, non_blocking: bool) -> PyResult<usize> {
         if self.buffer_size == 0 {
-            return py.allow_threads(|| {
+            return py.detach(|| {
                 fallback_socket_send(sock_fd, &EOS, non_blocking).map_err(io_error_to_py_err)
             });
         }
         self.buffer.extend_from_slice(&EOS);
         if self.buffer.len() >= self.buffer_size {
-            py.allow_threads(|| {
+            py.detach(|| {
                 fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                     .map_err(io_error_to_py_err)
             })?;
@@ -883,7 +883,7 @@ impl BFastNativeSender {
     pub fn flush(&mut self, py: Python, sock_fd: i32, non_blocking: bool) -> PyResult<usize> {
         let mut total_flushed = 0;
         if !self.buffer.is_empty() {
-            total_flushed = py.allow_threads(|| {
+            total_flushed = py.detach(|| {
                 let res = fallback_socket_send(sock_fd, &self.buffer, non_blocking)
                     .map_err(io_error_to_py_err);
                 self.buffer.clear();
@@ -895,7 +895,7 @@ impl BFastNativeSender {
         {
             if let Some(pipe) = self.pipe.as_mut() {
                 if pipe.pending_bytes() > 0 {
-                    let drained = py.allow_threads(|| {
+                    let drained = py.detach(|| {
                         pipe.drain_pending(sock_fd, non_blocking)
                             .map_err(io_error_to_py_err)
                     })?;

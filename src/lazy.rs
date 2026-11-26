@@ -1,3 +1,4 @@
+use crate::PyObject;
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict, PyList, PyString};
@@ -344,7 +345,7 @@ impl BFastLazyView {
 
         if tag == 0x70 {
             // Dict lookup
-            let key_str = if let Ok(s) = key.downcast::<PyString>() {
+            let key_str = if let Ok(s) = key.cast::<PyString>() {
                 s.to_str()?
             } else {
                 return Err(PyKeyError::new_err("Dictionary keys must be strings"));
