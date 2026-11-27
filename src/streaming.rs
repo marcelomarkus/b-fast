@@ -202,6 +202,117 @@ impl BFastStreamEncoder {
         self.b_fast.encode_frame(obj, compress)
     }
 
+    #[pyo3(signature = (iterable, *, compress = true, include_handshake = true, include_eos = true, chunk_size = 65536))]
+    pub fn encode_stream_chunks(
+        &mut self,
+        py: Python,
+        iterable: &Bound<'_, PyAny>,
+        compress: bool,
+        include_handshake: bool,
+        include_eos: bool,
+        chunk_size: usize,
+    ) -> PyResult<Vec<PyObject>> {
+        let mut chunks = Vec::new();
+        let mut buffer = Vec::with_capacity(chunk_size.max(8192) + 4096);
+
+        if include_handshake {
+            buffer.extend_from_slice(&STREAM_MAGIC);
+            buffer.push(STREAM_VERSION);
+            buffer.push(0x00);
+        }
+
+        let is_list = unsafe { pyo3::ffi::PyList_CheckExact(iterable.as_ptr()) != 0 };
+        if is_list {
+            let list_ptr = iterable.as_ptr();
+            let list_len = unsafe { pyo3::ffi::PyList_Size(list_ptr) };
+            for i in 0..list_len {
+                let item_ptr = unsafe { pyo3::ffi::PyList_GetItem(list_ptr, i) };
+                let item = unsafe { Bound::from_borrowed_ptr(py, item_ptr) };
+                self.b_fast.encode_packed_internal(&item, compress)?;
+                let is_comp = if self.b_fast.last_was_compressed {
+                    1u8
+                } else {
+                    0u8
+                };
+                let slice_len = if self.b_fast.last_was_compressed {
+                    self.b_fast.compressed_buffer.len()
+                } else {
+                    self.b_fast.work_buffer.len()
+                };
+                let len = slice_len as u32;
+                let header = [
+                    (len & 0xFF) as u8,
+                    ((len >> 8) & 0xFF) as u8,
+                    ((len >> 16) & 0xFF) as u8,
+                    ((len >> 24) & 0xFF) as u8,
+                    FRAME_DATA,
+                    is_comp,
+                ];
+                let payload_slice = if self.b_fast.last_was_compressed {
+                    &self.b_fast.compressed_buffer[..slice_len]
+                } else {
+                    &self.b_fast.work_buffer[..slice_len]
+                };
+                buffer.extend_from_slice(&header);
+                buffer.extend_from_slice(payload_slice);
+
+                if chunk_size > 0 && buffer.len() >= chunk_size {
+                    let py_bytes = pyo3::types::PyBytes::new(py, &buffer);
+                    chunks.push(py_bytes.into());
+                    buffer.clear();
+                }
+            }
+        } else {
+            for item in iterable.try_iter()? {
+                let item = item?;
+                self.b_fast.encode_packed_internal(&item, compress)?;
+                let is_comp = if self.b_fast.last_was_compressed {
+                    1u8
+                } else {
+                    0u8
+                };
+                let slice_len = if self.b_fast.last_was_compressed {
+                    self.b_fast.compressed_buffer.len()
+                } else {
+                    self.b_fast.work_buffer.len()
+                };
+                let len = slice_len as u32;
+                let header = [
+                    (len & 0xFF) as u8,
+                    ((len >> 8) & 0xFF) as u8,
+                    ((len >> 16) & 0xFF) as u8,
+                    ((len >> 24) & 0xFF) as u8,
+                    FRAME_DATA,
+                    is_comp,
+                ];
+                let payload_slice = if self.b_fast.last_was_compressed {
+                    &self.b_fast.compressed_buffer[..slice_len]
+                } else {
+                    &self.b_fast.work_buffer[..slice_len]
+                };
+                buffer.extend_from_slice(&header);
+                buffer.extend_from_slice(payload_slice);
+
+                if chunk_size > 0 && buffer.len() >= chunk_size {
+                    let py_bytes = pyo3::types::PyBytes::new(py, &buffer);
+                    chunks.push(py_bytes.into());
+                    buffer.clear();
+                }
+            }
+        }
+
+        if include_eos {
+            buffer.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, FRAME_EOS, 0x00]);
+        }
+
+        if !buffer.is_empty() {
+            let py_bytes = pyo3::types::PyBytes::new(py, &buffer);
+            chunks.push(py_bytes.into());
+        }
+
+        Ok(chunks)
+    }
+
     #[staticmethod]
     pub fn get_handshake(py: Python) -> PyResult<PyObject> {
         BFast::get_stream_handshake(py)

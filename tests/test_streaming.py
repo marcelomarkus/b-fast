@@ -298,3 +298,55 @@ def test_is_async_iterable_helper():
     assert is_async_iterable(sample_async_gen()) is True
     assert is_async_iterable(sample_sync_gen()) is False
     assert is_async_iterable([1, 2, 3]) is False
+
+
+def test_coalesced_stream_sync_batching():
+    encoder = BFastStreamEncoder()
+    decoder = BFastStreamDecoder()
+
+    records = [{"id": i, "data": f"record_payload_{i}" * 5} for i in range(50)]
+
+    # 1. Unbuffered stream (chunk_size=0)
+    unbuffered_chunks = list(encoder.encode_stream(records, chunk_size=0))
+    # Handshake + 50 frames + EOS = 52 chunks
+    assert len(unbuffered_chunks) == 52
+
+    # 2. Coalesced stream with chunk_size=2048
+    coalesced_chunks = list(encoder.encode_stream(records, chunk_size=2048))
+    # Should produce significantly fewer chunks
+    assert len(coalesced_chunks) < 10
+
+    # Ensure all chunks (except the final flush) meet or exceed the coalescing threshold
+    for chunk in coalesced_chunks[:-1]:
+        assert len(chunk) >= 2048
+
+    # Verify 100% data fidelity on decode
+    decoded = list(decoder.decode_stream(coalesced_chunks))
+    assert len(decoded) == 50
+    assert decoded == records
+    assert decoder.is_eos is True
+
+
+@pytest.mark.anyio
+async def test_coalesced_stream_async_batching():
+    encoder = BFastStreamEncoder()
+    decoder = BFastStreamDecoder()
+
+    records = [{"step": i, "val": i * 3.14} for i in range(40)]
+
+    async def async_records():
+        for r in records:
+            yield r
+
+    coalesced_chunks = []
+    async for chunk in encoder.encode_async_stream(async_records(), chunk_size=1024):
+        coalesced_chunks.append(chunk)
+
+    assert len(coalesced_chunks) < 10
+
+    decoded = []
+    for chunk in coalesced_chunks:
+        decoded.extend(decoder.feed(chunk))
+
+    assert decoded == records
+    assert decoder.is_eos is True
