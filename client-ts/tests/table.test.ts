@@ -173,3 +173,167 @@ test("BFastTable - columnar dictionary fallback", () => {
 
     table.free();
 });
+
+test("BFastTable - typed array views (Float32, Uint32, Uint8) for WebGL/GPU", () => {
+    const records = [
+        { id: 1, x: 1.25, flags: 0x01, idx: 100 },
+        { id: 2, x: 2.50, flags: 0x02, idx: 200 },
+        { id: 3, x: 3.75, flags: 0x04, idx: 300 },
+    ];
+
+    const encoded = BFastEncoder.encode(records, { compress: false });
+    const table = BFastTable.from(encoded);
+
+    // Float32Array for GPU shaders
+    const f32 = table.getFloat32Array("x");
+    assert.ok(f32 instanceof Float32Array);
+    assert.equal(f32.length, 3);
+    assert.equal(f32[0], 1.25);
+    assert.equal(f32[1], 2.50);
+    assert.equal(f32[2], 3.75);
+
+    // Uint32Array for indices/buffers
+    const u32 = table.getUint32Array("idx");
+    assert.ok(u32 instanceof Uint32Array);
+    assert.equal(u32.length, 3);
+    assert.equal(u32[0], 100);
+    assert.equal(u32[2], 300);
+
+    // Uint8Array for byte flags/colors
+    const u8 = table.getUint8Array("flags");
+    assert.ok(u8 instanceof Uint8Array);
+    assert.equal(u8.length, 3);
+    assert.equal(u8[0], 1);
+    assert.equal(u8[1], 2);
+    assert.equal(u8[2], 4);
+
+    table.free();
+});
+
+test("BFastTable - null/validity bitmap checking and isNull", () => {
+    const dict = {
+        ids: [1, 2, 3, 4],
+        scores: [10.5, null, 25.0, NaN],
+        names: ["alice", null, "charlie", undefined],
+    };
+
+    const encoded = BFastEncoder.encode(dict, { compress: false });
+    const table = BFastTable.from(encoded);
+
+    assert.equal(table.rowCount, 4);
+
+    // Validity bitmap for scores
+    const scoreValidity = table.getValidityBitmap("scores");
+    assert.ok(scoreValidity instanceof Uint8Array);
+    assert.equal(scoreValidity.length, 4);
+    assert.equal(scoreValidity[0], 1); // 10.5
+    assert.equal(scoreValidity[1], 0); // null
+    assert.equal(scoreValidity[2], 1); // 25.0
+    assert.equal(scoreValidity[3], 0); // NaN
+
+    assert.equal(table.isNull("scores", 0), false);
+    assert.equal(table.isNull("scores", 1), true);
+    assert.equal(table.isNull("scores", 2), false);
+    assert.equal(table.isNull("scores", 3), true);
+
+    // Validity bitmap for names
+    const nameValidity = table.getValidityBitmap("names");
+    assert.equal(nameValidity[0], 1); // "alice"
+    assert.equal(nameValidity[1], 0); // null
+    assert.equal(nameValidity[2], 1); // "charlie"
+    assert.equal(nameValidity[3], 0); // undefined
+
+    assert.equal(table.isNull("names", 0), false);
+    assert.equal(table.isNull("names", 1), true);
+    assert.equal(table.isNull("names", 2), false);
+    assert.equal(table.isNull("names", 3), true);
+
+    // Out of bounds check
+    assert.throws(() => table.isNull("scores", 10), /out of bounds/);
+
+    table.free();
+});
+
+test("BFastTable - table concatenation and append for streaming chunks", () => {
+    const chunk1Records = [
+        { id: 1, val: 10.0, label: "a", active: true },
+        { id: 2, val: 20.0, label: "b", active: false },
+    ];
+    const chunk2Records = [
+        { id: 3, val: 30.0, label: "c", active: true },
+        { id: 4, val: 40.0, label: "d", active: false },
+    ];
+
+    const t1 = BFastTable.from(BFastEncoder.encode(chunk1Records, { compress: false }));
+    const t2 = BFastTable.from(BFastEncoder.encode(chunk2Records, { compress: false }));
+
+    // Test append
+    const appended = t1.append(t2);
+    assert.equal(appended.rowCount, 4);
+    assert.deepEqual(appended.getFloat64Array("val"), new Float64Array([10.0, 20.0, 30.0, 40.0]));
+    assert.deepEqual(appended.getStringArray("label"), ["a", "b", "c", "d"]);
+    assert.deepEqual(appended.getBooleanArray("active"), new Uint8Array([1, 0, 1, 0]));
+
+    // Test static concat with multiple chunks
+    const chunk3Records = [
+        { id: 5, val: 50.0, label: "e", active: true },
+    ];
+    const t3 = BFastTable.from(BFastEncoder.encode(chunk3Records, { compress: false }));
+
+    const concatenated = BFastTable.concat([t1, t2, t3]);
+    assert.equal(concatenated.rowCount, 5);
+    assert.deepEqual(concatenated.getFloat64Array("val"), new Float64Array([10.0, 20.0, 30.0, 40.0, 50.0]));
+    assert.deepEqual(concatenated.getStringArray("label"), ["a", "b", "c", "d", "e"]);
+
+    // Edge cases for concat
+    assert.equal(BFastTable.concat([]).rowCount, 0);
+    assert.equal(BFastTable.concat([t1]).rowCount, 2);
+
+    t1.free();
+    t2.free();
+    t3.free();
+    appended.free();
+    concatenated.free();
+});
+
+test("BFastTable - visualization adapters: toECharts, toDeckGL, toPlotly", () => {
+    const records = [
+        { x: 1.5, y: 10.0, count: 100, category: "alpha", active: true },
+        { x: 2.5, y: 20.0, count: 200, category: "beta", active: false },
+        { x: 3.5, y: 30.0, count: 300, category: "gamma", active: true },
+    ];
+
+    const table = BFastTable.from(BFastEncoder.encode(records, { compress: false }));
+
+    // 1. Apache ECharts
+    const echarts = table.toECharts();
+    assert.ok(Array.isArray(echarts.dimensions));
+    assert.ok(echarts.source["x"] instanceof Float64Array);
+    assert.equal(echarts.source["x"].length, 3);
+    assert.deepEqual(echarts.source["category"], ["alpha", "beta", "gamma"]);
+
+    // Custom subset of columns for ECharts
+    const echartsSubset = table.toECharts(["x", "y"]);
+    assert.deepEqual(echartsSubset.dimensions, ["x", "y"]);
+    assert.equal(Object.keys(echartsSubset.source).length, 2);
+
+    // 2. Deck.gl layer binary attributes
+    const deckgl = table.toDeckGL({
+        getPosition: { column: "x", size: 1, type: "float32" },
+        getColor: { column: "count", size: 1, type: "uint8" },
+        getWeight: { column: "y", size: 1, type: "float64" },
+    });
+    assert.equal(deckgl.length, 3);
+    assert.ok(deckgl.attributes.getPosition.value instanceof Float32Array);
+    assert.equal(deckgl.attributes.getPosition.size, 1);
+    assert.ok(deckgl.attributes.getColor.value instanceof Uint8Array);
+    assert.ok(deckgl.attributes.getWeight.value instanceof Float64Array);
+
+    // 3. Plotly WebGL trace format
+    const plotly = table.toPlotly();
+    assert.ok(plotly["x"] instanceof Float64Array);
+    assert.ok(plotly["count"] instanceof Int32Array);
+    assert.deepEqual(plotly["category"], ["alpha", "beta", "gamma"]);
+
+    table.free();
+});

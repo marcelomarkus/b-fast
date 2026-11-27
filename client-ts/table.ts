@@ -3,13 +3,30 @@ import { getWasmTableBindings, initWasmLz4Sync, WasmTableBindings } from "./wasm
 
 export type AggregateOp = "sum" | "avg" | "min" | "max" | "count";
 export type FilterOp = "==" | "!=" | "<" | "<=" | ">" | ">=";
-export type ColumnTypeString = "float64" | "int64" | "boolean" | "string" | "unknown";
+export type ColumnTypeString =
+    | "float64"
+    | "float32"
+    | "int64"
+    | "int32"
+    | "uint32"
+    | "uint8"
+    | "boolean"
+    | "string"
+    | "date"
+    | "datetime"
+    | "unknown";
+
+export interface DeckGLAttributeConfig {
+    column: string;
+    size?: number;
+    type?: "float32" | "float64" | "uint32" | "uint8";
+}
 
 const UTF8_DECODER = new TextDecoder();
 
 /**
- * BFastTable: Zero-GC Columnar Engine for Web & WebAssembly.
- * Decodes B-FAST binary records directly into contiguous TypedArrays in WebAssembly linear memory.
+ * BFastTable: Zero-GC Columnar Engine for Web, WebAssembly & WebGL/GPU.
+ * Decodes B-FAST binary records and columnar payloads directly into contiguous TypedArrays.
  */
 export class BFastTable {
     private readonly _bindings: WasmTableBindings | null;
@@ -173,7 +190,6 @@ export class BFastTable {
 
     /**
      * Get a zero-copy Float64Array view directly into WebAssembly memory.
-     * Allocates 0 bytes on the JavaScript heap.
      */
     public getFloat64Array(name: string): Float64Array {
         this.assertNotDisposed();
@@ -195,9 +211,46 @@ export class BFastTable {
             return new Float64Array(memory.buffer, dataPtr, this._rowCount);
         }
 
-        // Fallback
         const colData = this._fallbackData![name];
-        return new Float64Array(colData);
+        const res = new Float64Array(this._rowCount);
+        for (let i = 0; i < this._rowCount; i++) {
+            res[i] = Number(colData[i]);
+        }
+        return res;
+    }
+
+    /**
+     * Get a Float32Array view / copy for WebGL / GPU shaders (Three.js, Deck.gl).
+     */
+    public getFloat32Array(name: string): Float32Array {
+        this.assertNotDisposed();
+        const idx = this._colIndices.get(name);
+        if (idx === undefined) throw new Error(`Column '${name}' not found in table`);
+
+        if (this._bindings && this._tablePtr !== 0) {
+            const dataPtr = this._bindings.tableGetColumnDataPtr(this._tablePtr, idx);
+            const memory = this._bindings.getMemory();
+            const colType = this._colTypes[idx];
+            if (colType === "int64") {
+                const bigIntView = new BigInt64Array(memory.buffer, dataPtr, this._rowCount);
+                const float32 = new Float32Array(this._rowCount);
+                for (let i = 0; i < this._rowCount; i++) {
+                    float32[i] = Number(bigIntView[i]);
+                }
+                return float32;
+            }
+            const float64View = new Float64Array(memory.buffer, dataPtr, this._rowCount);
+            const float32 = new Float32Array(this._rowCount);
+            float32.set(float64View);
+            return float32;
+        }
+
+        const colData = this._fallbackData![name];
+        const res = new Float32Array(this._rowCount);
+        for (let i = 0; i < this._rowCount; i++) {
+            res[i] = Number(colData[i]);
+        }
+        return res;
     }
 
     /**
@@ -260,7 +313,86 @@ export class BFastTable {
         }
 
         const colData = this._fallbackData![name];
-        return new Int32Array(colData);
+        const res = new Int32Array(this._rowCount);
+        for (let i = 0; i < this._rowCount; i++) {
+            res[i] = Number(colData[i]) | 0;
+        }
+        return res;
+    }
+
+    /**
+     * Get a Uint32Array view / copy for indices or unsigned integers.
+     */
+    public getUint32Array(name: string): Uint32Array {
+        this.assertNotDisposed();
+        const idx = this._colIndices.get(name);
+        if (idx === undefined) throw new Error(`Column '${name}' not found in table`);
+
+        if (this._bindings && this._tablePtr !== 0) {
+            const dataPtr = this._bindings.tableGetColumnDataPtr(this._tablePtr, idx);
+            const memory = this._bindings.getMemory();
+            const colType = this._colTypes[idx];
+            if (colType === "float64") {
+                const floatView = new Float64Array(memory.buffer, dataPtr, this._rowCount);
+                const uint32 = new Uint32Array(this._rowCount);
+                for (let i = 0; i < this._rowCount; i++) {
+                    uint32[i] = floatView[i] >>> 0;
+                }
+                return uint32;
+            }
+            const bigIntView = new BigInt64Array(memory.buffer, dataPtr, this._rowCount);
+            const uint32 = new Uint32Array(this._rowCount);
+            for (let i = 0; i < this._rowCount; i++) {
+                uint32[i] = Number(bigIntView[i]) >>> 0;
+            }
+            return uint32;
+        }
+
+        const colData = this._fallbackData![name];
+        const res = new Uint32Array(this._rowCount);
+        for (let i = 0; i < this._rowCount; i++) {
+            res[i] = Number(colData[i]) >>> 0;
+        }
+        return res;
+    }
+
+    /**
+     * Get a Uint8Array view / copy for bytes, flags, or color components.
+     */
+    public getUint8Array(name: string): Uint8Array {
+        this.assertNotDisposed();
+        const idx = this._colIndices.get(name);
+        if (idx === undefined) throw new Error(`Column '${name}' not found in table`);
+
+        if (this._bindings && this._tablePtr !== 0) {
+            const dataPtr = this._bindings.tableGetColumnDataPtr(this._tablePtr, idx);
+            const memory = this._bindings.getMemory();
+            const colType = this._colTypes[idx];
+            if (colType === "boolean") {
+                return new Uint8Array(memory.buffer, dataPtr, this._rowCount);
+            }
+            if (colType === "int64") {
+                const bigIntView = new BigInt64Array(memory.buffer, dataPtr, this._rowCount);
+                const uint8 = new Uint8Array(this._rowCount);
+                for (let i = 0; i < this._rowCount; i++) {
+                    uint8[i] = Number(bigIntView[i]) & 0xff;
+                }
+                return uint8;
+            }
+            const floatView = new Float64Array(memory.buffer, dataPtr, this._rowCount);
+            const uint8 = new Uint8Array(this._rowCount);
+            for (let i = 0; i < this._rowCount; i++) {
+                uint8[i] = floatView[i] & 0xff;
+            }
+            return uint8;
+        }
+
+        const colData = this._fallbackData![name];
+        const res = new Uint8Array(this._rowCount);
+        for (let i = 0; i < this._rowCount; i++) {
+            res[i] = Number(colData[i]) & 0xff;
+        }
+        return res;
     }
 
     /**
@@ -283,6 +415,41 @@ export class BFastTable {
             res[i] = colData[i] ? 1 : 0;
         }
         return res;
+    }
+
+    /**
+     * Get a validity mask for a column (1 = valid, 0 = null or undefined).
+     */
+    public getValidityBitmap(name: string): Uint8Array {
+        this.assertNotDisposed();
+        const idx = this._colIndices.get(name);
+        if (idx === undefined) throw new Error(`Column '${name}' not found in table`);
+
+        const mask = new Uint8Array(this._rowCount);
+        if (this._fallbackData && this._fallbackData[name]) {
+            const col = this._fallbackData[name];
+            for (let i = 0; i < this._rowCount; i++) {
+                mask[i] = col[i] !== null && col[i] !== undefined && !Number.isNaN(col[i]) ? 1 : 0;
+            }
+        } else {
+            mask.fill(1);
+        }
+        return mask;
+    }
+
+    /**
+     * Check if a specific cell is null or undefined.
+     */
+    public isNull(name: string, rowIndex: number): boolean {
+        this.assertNotDisposed();
+        if (rowIndex < 0 || rowIndex >= this._rowCount) {
+            throw new RangeError(`Row index ${rowIndex} out of bounds (rowCount: ${this._rowCount})`);
+        }
+        if (this._fallbackData && this._fallbackData[name]) {
+            const v = this._fallbackData[name][rowIndex];
+            return v === null || v === undefined || (typeof v === "number" && Number.isNaN(v));
+        }
+        return false;
     }
 
     /**
@@ -388,15 +555,130 @@ export class BFastTable {
         for (let i = 0; i < arr.length; i++) {
             const v = arr[i];
             const ok =
-                op === "==" ? v === target :
-                op === "!=" ? v !== target :
-                op === "<" ? v < target :
-                op === "<=" ? v <= target :
-                op === ">" ? v > target :
-                v >= target;
+                op === "=="
+                    ? v === target
+                    : op === "!="
+                    ? v !== target
+                    : op === "<"
+                    ? v < target
+                    : op === "<="
+                    ? v <= target
+                    : op === ">"
+                    ? v > target
+                    : v >= target;
             if (ok) matches.push(i);
         }
         return new Uint32Array(matches);
+    }
+
+    /**
+     * Append another BFastTable with matching columns, returning a merged BFastTable.
+     */
+    public append(other: BFastTable): BFastTable {
+        return BFastTable.concat([this, other]);
+    }
+
+    /**
+     * Concatenate multiple BFastTables into a single unified BFastTable.
+     */
+    public static concat(tables: BFastTable[]): BFastTable {
+        if (tables.length === 0) {
+            return new BFastTable(null, 0, 0, [], [], {});
+        }
+        if (tables.length === 1) {
+            return tables[0];
+        }
+
+        const first = tables[0];
+        const colNames = first.columnNames;
+        const colTypes = colNames.map((c) => first.getColumnType(c));
+        const totalRows = tables.reduce((acc, t) => acc + t.rowCount, 0);
+
+        const mergedData: Record<string, any[]> = {};
+        for (const col of colNames) {
+            mergedData[col] = new Array(totalRows);
+        }
+
+        let rowOffset = 0;
+        for (const t of tables) {
+            const count = t.rowCount;
+            for (const col of colNames) {
+                const target = mergedData[col];
+                const type = t.getColumnType(col);
+                if (type === "float64") {
+                    const arr = t.getFloat64Array(col);
+                    for (let i = 0; i < count; i++) target[rowOffset + i] = arr[i];
+                } else if (type === "int64") {
+                    const arr = t.getBigInt64Array(col);
+                    for (let i = 0; i < count; i++) target[rowOffset + i] = arr[i];
+                } else if (type === "boolean") {
+                    const arr = t.getBooleanArray(col);
+                    for (let i = 0; i < count; i++) target[rowOffset + i] = arr[i] === 1;
+                } else {
+                    const arr = t.getStringArray(col);
+                    for (let i = 0; i < count; i++) target[rowOffset + i] = arr[i];
+                }
+            }
+            rowOffset += count;
+        }
+
+        return new BFastTable(null, 0, totalRows, colNames, colTypes, mergedData);
+    }
+
+    /**
+     * Export table dataset formatted for Apache ECharts.
+     */
+    public toECharts(columns?: string[]): { dimensions: string[]; source: Record<string, ArrayLike<any>> } {
+        const cols = columns ?? this._colNames;
+        const source: Record<string, ArrayLike<any>> = {};
+        for (const col of cols) {
+            const type = this.getColumnType(col);
+            if (type === "float64") source[col] = this.getFloat64Array(col);
+            else if (type === "int64") source[col] = this.getInt32Array(col);
+            else if (type === "boolean") source[col] = this.getBooleanArray(col);
+            else source[col] = this.getStringArray(col);
+        }
+        return { dimensions: cols, source };
+    }
+
+    /**
+     * Export binary attribute buffers formatted directly for Deck.gl layers.
+     */
+    public toDeckGL(attributeMapping: Record<string, DeckGLAttributeConfig>): {
+        length: number;
+        attributes: Record<string, { value: ArrayBufferView; size: number }>;
+    } {
+        const attributes: Record<string, { value: ArrayBufferView; size: number }> = {};
+        for (const [attrName, config] of Object.entries(attributeMapping)) {
+            const col = config.column;
+            const size = config.size ?? 1;
+            const type = config.type ?? "float32";
+            let value: ArrayBufferView;
+            if (type === "float32") value = this.getFloat32Array(col);
+            else if (type === "float64") value = this.getFloat64Array(col);
+            else if (type === "uint32") value = this.getUint32Array(col);
+            else if (type === "uint8") value = this.getUint8Array(col);
+            else value = this.getFloat32Array(col);
+
+            attributes[attrName] = { value, size };
+        }
+        return { length: this._rowCount, attributes };
+    }
+
+    /**
+     * Export columnar arrays formatted for Plotly.js WebGL traces.
+     */
+    public toPlotly(columns?: string[]): Record<string, ArrayLike<any>> {
+        const cols = columns ?? this._colNames;
+        const data: Record<string, ArrayLike<any>> = {};
+        for (const col of cols) {
+            const type = this.getColumnType(col);
+            if (type === "float64") data[col] = this.getFloat64Array(col);
+            else if (type === "int64") data[col] = this.getInt32Array(col);
+            else if (type === "boolean") data[col] = this.getBooleanArray(col);
+            else data[col] = this.getStringArray(col);
+        }
+        return data;
     }
 
     /**
