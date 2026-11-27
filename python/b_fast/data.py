@@ -37,6 +37,21 @@ def encode_dataframe(
         df = df.collect()
         type_name = type(df).__name__
 
+    # Arrow C Data Interface stream path
+    if (
+        orient in ("records", "columns")
+        and hasattr(df, "__arrow_c_stream__")
+        and hasattr(encoder, "encode_arrow_stream")
+    ):
+        try:
+            arrow_res = encoder.encode_arrow_stream(
+                df, orient=orient, compress=compress
+            )
+            if arrow_res is not None:
+                return arrow_res
+        except Exception:
+            pass
+
     if orient == "records":
         # Handled directly by Rust fast path
         return encoder.encode_packed(df, compress=compress)
