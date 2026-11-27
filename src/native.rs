@@ -384,14 +384,16 @@ fn send_iovec_pair(
     sock_fd: i32,
     iov0: &[u8],
     iov1: &[u8],
-    non_blocking: bool,
+    _non_blocking: bool,
 ) -> io::Result<usize> {
-    let n0 = fallback_socket_send(sock_fd, iov0, non_blocking)?;
-    if n0 < iov0.len() {
-        return Ok(n0);
-    }
-    let n1 = fallback_socket_send(sock_fd, iov1, non_blocking)?;
-    Ok(n0 + n1)
+    use std::io::{IoSlice, Write};
+    use std::os::windows::io::FromRawSocket;
+    let raw = sock_fd as u32 as std::os::windows::io::RawSocket;
+    let mut stream = unsafe { std::net::TcpStream::from_raw_socket(raw) };
+    let bufs = [IoSlice::new(iov0), IoSlice::new(iov1)];
+    let res = stream.write_vectored(&bufs);
+    std::mem::forget(stream);
+    res
 }
 
 fn io_error_to_py_err(err: io::Error) -> PyErr {

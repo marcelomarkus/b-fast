@@ -284,3 +284,70 @@ def test_bfast_middleware_content_negotiation():
     # 7. Status 204 No Content passes through untouched
     r_empty = client.get("/empty", headers={"accept": "application/x-bfast"})
     assert r_empty.status_code == 204
+
+
+@pytest.mark.skipif(not HAS_FASTAPI, reason="FastAPI is not installed")
+def test_bfast_streaming_response_with_coalescing():
+    app = FastAPI()
+
+    @app.get("/stream-coalesced")
+    def stream_coalesced():
+        def generate():
+            for i in range(30):
+                yield {"id": i, "value": f"item_{i}"}
+
+        return BFastStreamingResponse(generate(), chunk_size=512)
+
+    client = TestClient(app)
+    response = client.get("/stream-coalesced")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/x-bfast-stream"
+
+    decoder = BFastStreamDecoder()
+    items = list(decoder.decode_stream([response.content]))
+    assert len(items) == 30
+    assert items[0] == {"id": 0, "value": "item_0"}
+    assert items[29] == {"id": 29, "value": "item_29"}
+
+
+@pytest.mark.anyio
+async def test_bfast_streaming_response_asgi_direct_socket_transport():
+    import socket
+
+    s1, s2 = socket.socketpair()
+
+    class MockTransport:
+        def get_extra_info(self, name):
+            if name == "socket":
+                return s1
+            return None
+
+    scope = {"type": "http", "transport": MockTransport()}
+    messages = []
+
+    async def mock_receive():
+        return {"type": "http.request"}
+
+    async def mock_send(msg):
+        messages.append(msg)
+
+    items = [{"msg": f"hello_{i}"} for i in range(5)]
+    response = BFastStreamingResponse(items, native=True, chunk_size=256)
+
+    await response(scope, mock_receive, mock_send)
+
+    assert len(messages) == 2
+    assert messages[0]["type"] == "http.response.start"
+    assert messages[0]["status"] == 200
+    assert messages[1]["type"] == "http.response.body"
+    assert messages[1]["body"] == b""
+    assert messages[1]["more_body"] is False
+
+    # Read the data streamed directly into s2
+    decoder = BFastStreamDecoder()
+    recvd = s2.recv(16384)
+    decoded_items = decoder.feed(recvd)
+    assert decoded_items == items
+
+    s1.close()
+    s2.close()
