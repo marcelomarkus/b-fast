@@ -20,6 +20,11 @@
       "types": "./dist/worker.d.ts",
       "import": "./dist/esm/worker.js",
       "require": "./dist/worker.js"
+    },
+    "./table": {
+      "types": "./dist/table.d.ts",
+      "import": "./dist/esm/table.js",
+      "require": "./dist/table.js"
     }
   },
   "files": [
