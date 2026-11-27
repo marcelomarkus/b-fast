@@ -17,6 +17,7 @@ use std::borrow::Cow;
 use std::ptr;
 
 mod errors;
+pub mod arrow;
 pub mod lazy;
 pub mod native;
 pub mod streaming;
@@ -266,6 +267,40 @@ impl BFast {
             &self.work_buffer
         };
         Self::create_pybytes_fast(obj.py(), slice)
+    }
+
+    #[pyo3(signature = (obj, orient = "records", compress = true))]
+    pub fn encode_arrow_stream(
+        &mut self,
+        obj: &Bound<'_, PyAny>,
+        orient: &str,
+        compress: bool,
+    ) -> PyResult<Option<PyObject>> {
+        self.work_buffer.clear();
+        self.payload_buffer.clear();
+        std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
+
+        let ok = crate::arrow::serialize_arrow_stream(self, obj, orient)?;
+        if !ok {
+            std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
+            return Ok(None);
+        }
+
+        std::mem::swap(&mut self.work_buffer, &mut self.payload_buffer);
+        self.work_buffer.extend_from_slice(&[0u8; 6]);
+        self.write_string_table_vectorized()?;
+        self.write_header_simd(0, compress);
+        self.work_buffer.extend_from_slice(&self.payload_buffer);
+
+        self.finalize_compression(compress)?;
+
+        let slice = if self.last_was_compressed {
+            &self.compressed_buffer
+        } else {
+            &self.work_buffer
+        };
+        let pybytes = Self::create_pybytes_fast(obj.py(), slice)?;
+        Ok(Some(pybytes))
     }
 
     #[pyo3(signature = (obj, compress = true))]
@@ -615,12 +650,74 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn ensure_buffer_capacity(&mut self, additional: usize) {
+    pub(crate) fn ensure_buffer_capacity(&mut self, additional: usize) {
         let required = self.work_buffer.len() + additional;
         if required > self.work_buffer.capacity() {
             let new_cap = (self.work_buffer.capacity() * 2).max(required);
             self.work_buffer.reserve(new_cap - self.work_buffer.len());
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn push_work_byte(&mut self, b: u8) {
+        self.work_buffer.push(b);
+    }
+
+    #[inline(always)]
+    pub(crate) fn extend_work_bytes(&mut self, bytes: &[u8]) {
+        self.work_buffer.extend_from_slice(bytes);
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_int(&mut self, val: i64) {
+        if (0..=7).contains(&val) {
+            self.work_buffer.push(0x30 | (val as u8));
+        } else {
+            self.work_buffer.push(0x38);
+            self.work_buffer.extend_from_slice(&val.to_le_bytes());
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_float(&mut self, val: f64) {
+        self.work_buffer.push(0x40);
+        self.work_buffer.extend_from_slice(&val.to_le_bytes());
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_bool(&mut self, val: bool) {
+        self.work_buffer.push(if val { 0x21 } else { 0x20 });
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_null(&mut self) {
+        self.work_buffer.push(0x10);
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_str(&mut self, bytes: &[u8]) {
+        self.work_buffer.push(0x50);
+        self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        self.work_buffer.extend_from_slice(bytes);
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_date(&mut self, iso_bytes: &[u8]) {
+        self.work_buffer.push(TAG_DATE);
+        self.work_buffer.extend_from_slice(&(iso_bytes.len() as u32).to_le_bytes());
+        self.work_buffer.extend_from_slice(iso_bytes);
+    }
+
+    #[inline(always)]
+    pub(crate) fn write_arrow_datetime(&mut self, iso_bytes: &[u8]) {
+        self.work_buffer.push(TAG_DATETIME);
+        self.work_buffer.extend_from_slice(&(iso_bytes.len() as u32).to_le_bytes());
+        self.work_buffer.extend_from_slice(iso_bytes);
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_serialize_arrow_stream(&mut self, obj: &Bound<'_, PyAny>) -> PyResult<bool> {
+        crate::arrow::serialize_arrow_stream(self, obj, "records")
     }
 
     #[inline(always)]
@@ -2711,7 +2808,7 @@ impl BFast {
     }
 
     #[inline(always)]
-    fn get_or_create_string_id_fast(&mut self, key_str: &str) -> u32 {
+    pub(crate) fn get_or_create_string_id_fast(&mut self, key_str: &str) -> u32 {
         let bytes = key_str.as_bytes();
         let hash = Self::hash_str_deterministic(bytes);
         let slot = (hash as usize) & 63;
@@ -2975,6 +3072,12 @@ impl BFast {
         }
 
         // 15. DataFrame & Series support (Polars, Pandas, PyArrow) - check BEFORE __dict__
+        if val.hasattr("__arrow_c_stream__")? {
+            if let Ok(true) = self.try_serialize_arrow_stream(val) {
+                return Ok(());
+            }
+        }
+
         if let Ok(name_obj) = val.get_type().name() {
             let type_name = name_obj.to_str().unwrap_or("");
             if type_name == "DataFrame" {
@@ -2990,6 +3093,11 @@ impl BFast {
             } else if type_name == "LazyFrame" {
                 if val.hasattr("collect")? {
                     let df = val.call_method0("collect")?;
+                    if df.hasattr("__arrow_c_stream__")? {
+                        if let Ok(true) = self.try_serialize_arrow_stream(&df) {
+                            return Ok(());
+                        }
+                    }
                     if df.hasattr("to_dicts")? {
                         let records = df.call_method0("to_dicts")?;
                         return self.serialize_any_optimized(&records);
