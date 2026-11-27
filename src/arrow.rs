@@ -394,10 +394,9 @@ impl ColumnBatchReader {
                     ArrowTimeUnit::Millisecond => {
                         (ts.div_euclid(1_000), (ts.rem_euclid(1_000) * 1_000) as u32)
                     }
-                    ArrowTimeUnit::Microsecond => (
-                        ts.div_euclid(1_000_000),
-                        ts.rem_euclid(1_000_000) as u32,
-                    ),
+                    ArrowTimeUnit::Microsecond => {
+                        (ts.div_euclid(1_000_000), ts.rem_euclid(1_000_000) as u32)
+                    }
                     ArrowTimeUnit::Nanosecond => (
                         ts.div_euclid(1_000_000_000),
                         (ts.rem_euclid(1_000_000_000) / 1_000) as u32,
@@ -594,9 +593,8 @@ pub fn serialize_arrow_stream(
                 let mut readers = Vec::with_capacity(n_cols);
                 for (c, spec) in col_specs.iter().enumerate().take(n_cols) {
                     let col_arr_ptr = unsafe { *batch.children.add(c) };
-                    let maybe_reader = unsafe {
-                        ColumnBatchReader::from_array(&*col_arr_ptr, spec)
-                    };
+                    let maybe_reader =
+                        unsafe { ColumnBatchReader::from_array(&*col_arr_ptr, spec) };
                     match maybe_reader {
                         Some(r) => readers.push(r),
                         None => {

@@ -16,8 +16,8 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use std::ptr;
 
-mod errors;
 pub mod arrow;
+mod errors;
 pub mod lazy;
 pub mod native;
 pub mod streaming;
@@ -697,21 +697,24 @@ impl BFast {
     #[inline(always)]
     pub(crate) fn write_arrow_str(&mut self, bytes: &[u8]) {
         self.work_buffer.push(0x50);
-        self.work_buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        self.work_buffer
+            .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
         self.work_buffer.extend_from_slice(bytes);
     }
 
     #[inline(always)]
     pub(crate) fn write_arrow_date(&mut self, iso_bytes: &[u8]) {
         self.work_buffer.push(TAG_DATE);
-        self.work_buffer.extend_from_slice(&(iso_bytes.len() as u32).to_le_bytes());
+        self.work_buffer
+            .extend_from_slice(&(iso_bytes.len() as u32).to_le_bytes());
         self.work_buffer.extend_from_slice(iso_bytes);
     }
 
     #[inline(always)]
     pub(crate) fn write_arrow_datetime(&mut self, iso_bytes: &[u8]) {
         self.work_buffer.push(TAG_DATETIME);
-        self.work_buffer.extend_from_slice(&(iso_bytes.len() as u32).to_le_bytes());
+        self.work_buffer
+            .extend_from_slice(&(iso_bytes.len() as u32).to_le_bytes());
         self.work_buffer.extend_from_slice(iso_bytes);
     }
 
